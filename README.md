@@ -107,6 +107,11 @@ and on [ReadTheDocs][RTD].
 
 Development Status
 ------------------
+This branch is the evolution of https://github.com/ctrlpz/SOMns/tree/somns-intellij-4.5, to measure and improve the performance of async stack traces for actors.
+To make sure it works, the mx and truffle libraries need to be set to the following:
+MX: master branch at commit 014ad189
+Truffle: Should track: https://github.com/ctrlpz/truffle.git at branch debugger/step-end-turn
+
 
 Active development of SOMns happens on the `dev` branch [![Build Status](https://travis-ci.org/smarr/SOMns.png?branch=dev)](https://travis-ci.org/smarr/SOMns/tree/dev).
 
