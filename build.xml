@@ -127,7 +127,7 @@
         
         <exec executable="${mx.cmd}" dir="${svm.dir}">
           <arg value="--dynamicimports"/>
-          <arg value="../truffle,../tools,../compiler,../sdk"/>
+          <arg value="../truffle,${tools.dir},../compiler,../sdk"/>
           <arg value="clean"/>
           <env key="JAVA_HOME" value="${jvmci.home}" />
         </exec>
