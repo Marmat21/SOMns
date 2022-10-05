@@ -15,6 +15,7 @@ class ActorDemo usingPlatform: platform = Value (
     p2:: p <-: get.
     p2 whenResolved: [:r |
       'after get async' println.
+      1 halt.
       r println.
       5
     ].
@@ -25,9 +26,7 @@ class ActorDemo usingPlatform: platform = Value (
   public main: args = (
     | completionPP |
     completionPP:: actors createPromisePair.
-
-    1 halt.
-
+    
     createActorSendMessageAndProcessResult.
 
     ^ completionPP promise
