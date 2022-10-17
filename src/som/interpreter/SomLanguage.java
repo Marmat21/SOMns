@@ -125,7 +125,7 @@ public final class SomLanguage extends TruffleLanguage<VM> {
 
   @Option(help = "Selector for som.tests.BasicInterpreterTests",
       category = OptionCategory.INTERNAL) //
-  static final OptionKey<String> TestSelector = new OptionKey<String>("");
+  public static final OptionKey<String> TestSelector = new OptionKey<String>("");
 
   @CompilationFinal private VM        vm;
   @CompilationFinal private VmOptions options;
@@ -289,13 +289,13 @@ public final class SomLanguage extends TruffleLanguage<VM> {
     }
   }
 
-  @Override
+  //@Override
   protected Object findExportedSymbol(final VM context, final String globalName,
       final boolean onlyExplicit) {
     return context.getExport(globalName);
   }
 
-  @Override
+  //@Override
   protected boolean isObjectOfLanguage(final Object object) {
     if (object instanceof SAbstractObject) {
       return true;

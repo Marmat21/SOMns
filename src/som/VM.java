@@ -16,7 +16,7 @@ import com.oracle.truffle.api.TruffleContext;
 import com.oracle.truffle.api.TruffleLanguage.Env;
 import com.oracle.truffle.api.debug.Debugger;
 import com.oracle.truffle.api.instrumentation.Tag;
-import com.oracle.truffle.api.nodes.GraphPrintVisitor;
+//import com.oracle.truffle.api.nodes.GraphPrintVisitor;
 import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.source.SourceSection;
 import com.oracle.truffle.tools.profiler.CPUSampler;
@@ -189,15 +189,15 @@ public final class VM {
     }
   }
 
-  @SuppressWarnings("deprecation")
-  private static void outputToIGV(final Method method) {
-    GraphPrintVisitor graphPrinter = new GraphPrintVisitor();
-
-    graphPrinter.beginGraph(method.toString()).visit(method);
-
-    graphPrinter.printToNetwork(true);
-    graphPrinter.close();
-  }
+//  @SuppressWarnings("deprecation")
+//  private static void outputToIGV(final Method method) {
+//    GraphPrintVisitor graphPrinter = new GraphPrintVisitor();
+//
+//    graphPrinter.beginGraph(method.toString()).visit(method);
+//
+//    graphPrinter.printToNetwork(true);
+//    graphPrinter.close();
+//  }
 
   public ForkJoinPool getActorPool() {
     return actorPool;
@@ -240,9 +240,9 @@ public final class VM {
       webDebugger.reportRootNodeAfterParsing(rootNode);
     }
 
-    if (VmSettings.IGV_DUMP_AFTER_PARSING) {
-      outputToIGV(rootNode);
-    }
+//    if (VmSettings.IGV_DUMP_AFTER_PARSING) {
+//      outputToIGV(rootNode);
+//    }
   }
 
   public void reportLoadedSource(final Source source) {

@@ -27,7 +27,7 @@ public interface BackCacheCallNode {
                                     final Node expression,
                                     final ShadowStackEntryLoad shadowStackEntryLoad) {
         if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
-            assert arguments[arguments.length - 1] == null;
+            //assert arguments[arguments.length - 1] == null;
             assert (frame.getArguments()[frame.getArguments().length
                     - 1] instanceof ShadowStackEntry);
             assert frame.getArguments().length >= 2;
