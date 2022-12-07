@@ -78,6 +78,8 @@ public class RuntimeReflectionRegistration implements Feature {
     inMsgs.register(TraceDataRequest.class);
     inMsgs.register(EvaluateExpressionRequest.class);
     inMsgs.register("pauseActorMessageReceiver", PauseActorRequest.class);
+    inMsgs.register(UpdateClass.class);
+    inMsgs.register(RestartFrame.class);
 
     ClassGroup bps = new ClassGroup(BreakpointInfo.class, "type", true);
     bps.register(LineBreakpoint.class);

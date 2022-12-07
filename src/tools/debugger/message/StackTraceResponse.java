@@ -88,14 +88,18 @@ public final class StackTraceResponse extends Response {
 
     /** Indicates if the frame corresponds to an async operation. */
     private final boolean async;
+    
+    /** ID of the frame within a particular call stack */
+    private final long frameId;
 
     private  List<List<StackFrame>> parallelStacks;
-
-    StackFrame(final long globalId, final String name, final String sourceUri,
+    
+    StackFrame(final long globalId, final long frameId, final String name, final String sourceUri,
         final int line, final int column, final int endLine,
         final int endColumn, final int length, final boolean async) {
       assert TraceData.isWithinJSIntValueRange(globalId);
       this.id = globalId;
+      this.frameId = frameId;
       this.name = name;
       this.sourceUri = sourceUri;
       this.line = line;
@@ -226,7 +230,7 @@ public final class StackTraceResponse extends Response {
       return new StackFrame(id, name, sourceUri, line, column, endLine, endColumn, length,
               async,suspension,(ApplicationThreadStack.ParallelStack) frame);
     }
-    return new StackFrame(id, name, sourceUri, line, column, endLine, endColumn, length,
+    return new StackFrame(id, frameId, name, sourceUri, line, column, endLine, endColumn, length,
         async);
   }
 }
