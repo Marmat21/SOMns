@@ -1,4 +1,4 @@
-package tools.debugger.session;
+package tools.debugger.breakpoints;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -60,10 +60,13 @@ public class Breakpoints {
   public synchronized void addOrUpdate(final LineBreakpoint bId) {
     Breakpoint bp = truffleBreakpoints.get(bId);
     if (bp == null) {
-      WebDebugger.log("LineBreakpoint: " + bId);
+      WebDebugger.log("[DEBUGGER] LineBreakpoint: " + bId + " Enabled: " + bId.isEnabled());
       bp = Breakpoint.newBuilder(bId.getURI()).lineIs(bId.getLine()).build();
       debuggerSession.install(bp);
       truffleBreakpoints.put(bId, bp);
+    } else {
+      WebDebugger.log(
+          "[DEBUGGER] Update LineBreakpoint: " + bId + " Enabled: " + bId.isEnabled());
     }
     bp.setEnabled(bId.isEnabled());
   }
@@ -74,8 +77,11 @@ public class Breakpoints {
     if (existingBP == null) {
       existingBP = new BreakpointEnabling(bId);
       breakpoints.put(loc, existingBP);
+      WebDebugger.log("[DEBUGGER] SectionBreakpoint: " + bId + " Enabled: " + bId.isEnabled());
     } else {
       existingBP.setEnabled(bId.isEnabled());
+      WebDebugger.log(
+          "[DEBUGGER] Update SectionBreakpoint: " + bId + " Enabled: " + bId.isEnabled());
     }
   }
 
@@ -101,7 +107,7 @@ public class Breakpoints {
       final Class<? extends Tag> tag, final SuspendAnchor anchor) {
     Breakpoint bp = truffleBreakpoints.get(bId);
     if (bp == null) {
-      WebDebugger.log("SectionBreakpoint: " + bId);
+      WebDebugger.log("[DEBUGGER] SectionBreakpoint: " + bId);
       bp = Breakpoint.newBuilder(bId.getCoordinate().uri).lineIs(bId.getCoordinate().startLine)
                      .columnIs(bId.getCoordinate().startColumn)
                      .sectionLength(bId.getCoordinate().charLength)
@@ -123,7 +129,7 @@ public class Breakpoints {
     @Override
     public boolean evaluate() {
       RootCallTarget ct =
-          (RootCallTarget) Truffle.getRuntime().getCallerFrame().getCallTarget();
+          (RootCallTarget) Truffle.getRuntime().iterateFrames(f -> f.getCallTarget(), 1);
       return (ct.getRootNode() instanceof ReceivedRootNode);
     }
   }

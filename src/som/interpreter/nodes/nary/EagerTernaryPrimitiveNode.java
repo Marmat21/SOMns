@@ -5,12 +5,14 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.nodes.Node;
 
+import som.interpreter.SArguments;
 import som.interpreter.TruffleCompiler;
 import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.MessageSendNode;
 import som.interpreter.nodes.MessageSendNode.AbstractMessageSendNode;
 import som.interpreter.nodes.MessageSendNode.GenericMessageSendNode;
 import som.vm.NotYetImplementedException;
+import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
 
 
@@ -38,8 +40,7 @@ public final class EagerTernaryPrimitiveNode extends EagerPrimitiveNode {
 
   @Override
   public boolean hasTag(final Class<? extends Tag> tag) {
-    assert !(primitive instanceof WrapperNode)
-        : "Eager primitives are expected to point directly to primitive nodes, and do not have wrapper nodes. I think, we wanted the wrapper nodes to be strictly around the eager wrappers.";
+    assert !(primitive instanceof WrapperNode) : "Eager primitives are expected to point directly to primitive nodes, and do not have wrapper nodes. I think, we wanted the wrapper nodes to be strictly around the eager wrappers.";
     return primitive.hasTagIgnoringEagerness(tag);
   }
 
@@ -100,12 +101,19 @@ public final class EagerTernaryPrimitiveNode extends EagerPrimitiveNode {
   public Object executeEvaluated(final VirtualFrame frame,
       final Object receiver, final Object argument1, final Object argument2) {
     try {
+      if  (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+        primitive.maybeEntry = SArguments.getShadowStackEntry(frame);
+      }
       return primitive.executeEvaluated(frame, receiver, argument1, argument2);
     } catch (UnsupportedSpecializationException e) {
       TruffleCompiler.transferToInterpreterAndInvalidate(
           "Eager Primitive with unsupported specialization.");
+      Object[] arguments = {receiver, argument1, argument2};
+      if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+        arguments = new Object[] {receiver, argument1, argument2, null};
+      }
       return makeGenericSend().doPreEvaluated(frame,
-          new Object[] {receiver, argument1, argument2});
+          arguments);
     }
   }
 
@@ -133,8 +141,7 @@ public final class EagerTernaryPrimitiveNode extends EagerPrimitiveNode {
     if (newNode instanceof ExprWithTagsNode) {
       ((ExprWithTagsNode) newNode).tagMark = primitive.tagMark;
     } else if (newNode instanceof WrapperNode) {
-      assert ((WrapperNode) newNode).getDelegateNode() == this
-          : "Wrapping should not also do specialization or other changes, I think";
+      assert ((WrapperNode) newNode).getDelegateNode() == this : "Wrapping should not also do specialization or other changes, I think";
     } else {
       throw new NotYetImplementedException();
     }

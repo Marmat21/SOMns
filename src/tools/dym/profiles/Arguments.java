@@ -8,6 +8,7 @@ import com.oracle.truffle.api.utilities.JSONHelper.JSONObjectBuilder;
 
 import som.interpreter.Types;
 import som.interpreter.objectstorage.ClassFactory;
+import som.vm.VmSettings;
 
 
 public final class Arguments {
@@ -19,8 +20,14 @@ public final class Arguments {
   private final ClassFactory[] argSomTypes;
 
   Arguments(final Object[] arguments) {
-    this.argJavaTypes = getJavaTypes(arguments);
-    this.argSomTypes = getSomTypes(arguments);
+    Object[] argsToProfile;
+    if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+      argsToProfile = Arrays.copyOf(arguments, arguments.length - 1);
+    } else {
+      argsToProfile = arguments;
+    }
+    this.argJavaTypes = getJavaTypes(argsToProfile);
+    this.argSomTypes = getSomTypes(argsToProfile);
   }
 
   private static Class<?>[] getJavaTypes(final Object[] args) {
@@ -87,14 +94,22 @@ public final class Arguments {
 
     JSONArrayBuilder javaTypes = JSONHelper.array();
     for (Class<?> c : argJavaTypes) {
-      javaTypes.add(c.getSimpleName());
+      if (c == null) {
+        javaTypes.add((String) null);
+      } else {
+        javaTypes.add(c.getSimpleName());
+      }
     }
 
     result.add("javaTypes", javaTypes);
 
     JSONArrayBuilder somTypes = JSONHelper.array();
     for (ClassFactory c : argSomTypes) {
-      somTypes.add(c.getClassName().getString());
+      if (c == null) {
+        somTypes.add((String) null);
+      } else {
+        somTypes.add(c.getClassName().getString());
+      }
     }
     result.add("somTypes", somTypes);
     return result;

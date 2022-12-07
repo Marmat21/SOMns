@@ -2,10 +2,12 @@ package tools.debugger.frontend;
 
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 
-import com.oracle.truffle.api.debug.DebugStackFrame;
 import com.oracle.truffle.api.debug.SuspendedEvent;
 import com.oracle.truffle.api.frame.Frame;
+import com.oracle.truffle.api.nodes.Node;
+import com.oracle.truffle.api.nodes.RootNode;
 
 import som.interpreter.LexicalScope.MethodScope;
 import som.interpreter.actors.Actor;
@@ -15,11 +17,14 @@ import som.interpreter.actors.SuspendExecutionNode;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.primitives.ObjectPrims.HaltPrim;
 import som.vm.Activity;
+import som.vmobjects.SBlock;
+import som.vmobjects.SObjectWithClass;
 import tools.TraceData;
 import tools.concurrency.TracingActivityThread;
 import tools.debugger.FrontendConnector;
 import tools.debugger.entities.EntityType;
 import tools.debugger.entities.SteppingType;
+import tools.debugger.frontend.ApplicationThreadStack.StackFrame;
 import tools.debugger.frontend.ApplicationThreadTask.Resume;
 import tools.debugger.frontend.ApplicationThreadTask.SendStackTrace;
 import tools.debugger.message.VariablesRequest.FilterType;
@@ -53,10 +58,10 @@ public class Suspension {
 
   public synchronized void update(final SuspendedEvent e) {
     this.suspendedEvent = e;
-    this.stack = new ApplicationThreadStack(e, this);
+    this.stack = new ApplicationThreadStack(this);
   }
 
-  public synchronized ArrayList<DebugStackFrame> getStackFrames() {
+  public synchronized ArrayList<StackFrame> getStackFrames() {
     return stack.get();
   }
 
@@ -92,12 +97,11 @@ public class Suspension {
 
   private int getLocalId(final long globalId) {
     assert TraceData.getActivityIdFromGlobalValId(
-        globalId) == activityId
-        : "should be an id for current activity, otherwise, something is wrong";
+        globalId) == activityId : "should be an id for current activity, otherwise, something is wrong";
     return TraceData.valIdFromGlobal(globalId);
   }
 
-  public synchronized DebugStackFrame getFrame(final long globalId) {
+  public synchronized StackFrame getFrame(final long globalId) {
     return stack.get().get(getLocalId(globalId));
   }
 
@@ -175,9 +179,48 @@ public class Suspension {
             if (resolver != null) {
               resolver.getPromise().enableHaltOnResolution();
             }
+          } else if (activityThread.isStepping(
+              SteppingType.STEP_TO_END_TURN)) {
+            assert activity instanceof Actor;
+            EventualMessage turnMessage = EventualMessage.getCurrentExecutingMessage();
+            String actorName = "";
+            String turnName = "";
+
+            Object[] args = turnMessage.getArgs();
+            if (args.length > 0 && args[0] instanceof SObjectWithClass) { // e.g.
+                                                                          // PromiseSendMessage,
+                                                                          // DirectMessage
+              final SObjectWithClass actorObject = (SObjectWithClass) args[0];
+              actorName = actorObject.getSOMClass().getName().getString();
+            }
+            if (args.length > 0 && args[0] instanceof SBlock) { // e.g. PromiseCallbackMessage
+              SBlock block = (SBlock) args[0];
+              turnName = block.getMethod().getInvokable().getName();
+            }
+
+            if (turnName.isEmpty()) {
+              if (actorName.isEmpty()) {
+                turnName = turnMessage.getSelector().getString();
+              } else {
+                turnName =
+                    actorName.concat(">>#").concat(turnMessage.getSelector().getString());
+              }
+            }
+
+            Node suspendedNode = this.getEvent().getNode();
+            ArrayList<StackFrame> stackFrames = this.getStackFrames();
+            ArrayList<RootNode> rootNodeFrames = new ArrayList<>();
+            // get root nodes for the frames in the stack
+            for (StackFrame frame : stackFrames) {
+              rootNodeFrames.add(frame.getRootNode());
+            }
+
+            this.getEvent().getSession().prepareStepEndTurn(Thread.currentThread(),
+                suspendedNode, turnName, rootNodeFrames);
           }
         }
-      } catch (InterruptedException e) { /* Just continue waiting */ }
+      } catch (InterruptedException| IllegalMonitorStateException e) {
+        /* Just continue waiting */ }
     }
     synchronized (this) {
       suspendedEvent = null;

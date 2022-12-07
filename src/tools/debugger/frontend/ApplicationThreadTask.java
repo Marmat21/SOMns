@@ -7,7 +7,8 @@ import tools.debugger.FrontendConnector;
  * A task that needs to be executed by the application thread while it is in a
  * {@link Suspension}.
  */
-abstract public class ApplicationThreadTask {
+
+public abstract class ApplicationThreadTask {
   /**
    * @return continue waiting on true, resume execution on false.
    */

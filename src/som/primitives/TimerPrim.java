@@ -18,6 +18,7 @@ import com.oracle.truffle.api.dsl.Specialization;
 import bd.primitives.Primitive;
 import som.VM;
 import som.compiler.AccessModifier;
+import som.interpreter.SArguments;
 import som.interpreter.actors.Actor;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualSendNode;
@@ -31,8 +32,8 @@ import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.ReplayActor;
 import tools.replay.TraceParser;
-import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.actors.ExternalEventualMessage.ExternalDirectMessage;
+import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.nodes.TraceContextNode;
 import tools.replay.nodes.TraceContextNodeGen;
 
@@ -101,8 +102,10 @@ public abstract class TimerPrim extends BinarySystemOperation {
     timer.schedule(new TimerTask() {
       @Override
       public void run() {
+        Object[] args = SArguments.convertToArgumentArray(new Object[] {target});
+
         ExternalDirectMessage msg = new ExternalDirectMessage(targetActor,
-            VALUE_SELECTOR, new Object[] {target}, timerActor, null, valueCallTarget,
+            VALUE_SELECTOR, args, timerActor, null, valueCallTarget,
             (short) 0, id);
         targetActor.send(msg, actorPool);
       }

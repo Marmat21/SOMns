@@ -17,6 +17,7 @@ enum TraceRecords {
   PassiveEntityCompletion,
   SendOp,
   ReceiveOp,
+  MessageReceiveOp,
   ImplThread,
   ImplThreadCurrentActivity
 }
@@ -25,6 +26,7 @@ const SOURCE_SECTION_SIZE = 8;
 
 const IMPL_THREAD_MARKER = 20;
 const IMPL_THREAD_CURRENT_ACTIVITY_MARKER = 21;
+const ACTOR_MSG_RECEIVE_MARKER = 23;
 
 const RECORD_SIZE = {
   ActivityCreation: 11 + SOURCE_SECTION_SIZE,
@@ -33,8 +35,9 @@ const RECORD_SIZE = {
   DynamicScopeEnd: 1,
   PassiveEntityCreation: 9 + SOURCE_SECTION_SIZE,
   PassiveEntityCompletion: undefined,
-  SendOp: 17,
+  SendOp: 17 + 8 /* rcvr actor id */ + 2 /* symbol id */ + SOURCE_SECTION_SIZE,
   ReceiveOp: 9,
+  MessageReceiveOp: 9,
   ImplThread: 9,
   ImplThreadCurrentActivity: 13
 };
@@ -102,6 +105,7 @@ export class TraceParser {
     console.assert(this.metaModel.serverCapabilities.dynamicScopeParseData.completionSize === RECORD_SIZE.DynamicScopeEnd);
     console.assert(this.metaModel.serverCapabilities.sendReceiveParseData.creationSize === RECORD_SIZE.SendOp);
     console.assert(this.metaModel.serverCapabilities.sendReceiveParseData.completionSize === RECORD_SIZE.ReceiveOp);
+    console.assert(this.metaModel.serverCapabilities.actorMessageReceiveData.creationSize === RECORD_SIZE.MessageReceiveOp);
 
     console.assert(this.metaModel.serverCapabilities.implementationData[0].marker === IMPL_THREAD_MARKER);
     console.assert(this.metaModel.serverCapabilities.implementationData[0].size === RECORD_SIZE.ImplThread);
@@ -110,6 +114,11 @@ export class TraceParser {
 
     this.parseTable[IMPL_THREAD_MARKER] = TraceRecords.ImplThread;
     this.parseTable[IMPL_THREAD_CURRENT_ACTIVITY_MARKER] = TraceRecords.ImplThreadCurrentActivity;
+
+    // STEFAN: this was added by Carmen and doesn't really fit the bill, so, handled manually
+    this.parseTable[ACTOR_MSG_RECEIVE_MARKER] = TraceRecords.MessageReceiveOp;
+
+    console.assert(Object.keys(this.metaModel.serverCapabilities).length === 13);
   }
 
   /** Read a long within JS int range */
@@ -137,8 +146,6 @@ export class TraceParser {
     this.execData.addRawActivity(new RawActivity(
       <ActivityType> this.typeCreation[marker], activityId, symbolId,
       sourceSection, currentActivityId, currentScopeId));
-
-    return i + RECORD_SIZE.ActivityCreation;
   }
 
   private readScopeStart(i: number, data: DataView,
@@ -150,8 +157,6 @@ export class TraceParser {
     this.execData.addRawScope(new RawScope(
       <DynamicScopeType> this.typeCreation[marker], id, source,
       currentActivityId, currentScopeId));
-
-    return i + RECORD_SIZE.DynamicScopeStart;
   }
 
   private readEntityCreation(i: number, data: DataView,
@@ -163,21 +168,25 @@ export class TraceParser {
     this.execData.addRawPassiveEntity(new RawPassiveEntity(
       <PassiveEntityType> this.typeCreation[marker], id, source,
       currentActivityId, currentScopeId));
-
-    return i + RECORD_SIZE.PassiveEntityCreation;
   }
 
   private readSendOp(i: number, data: DataView,
     currentActivityId: number, currentScopeId: number) {
     const marker = data.getUint8(i);
     const entityId = this.readLong(data, i + 1);
-    const targetId = this.readLong(data, i + 9);
+    const targetId = this.readLong(data, i + 1 + 8);
+    // const targetActorId = this.readLong(data, i + 1 + 8 + 8);
+    // const symbolId = this.readShort(data, i + 1 + 8 + 8 + 8)
+    // const source section info 4x 2 byte at i + 1 + 8 + 8 + 8 + 2
+
+    const valueLength = data.getInt32(i + 1 + 8 + 8 + 8 + 2 + 8, true);
 
     this.execData.addRawSendOp(new RawSendOp(
       this.sendOps[marker], entityId, targetId, currentActivityId,
       currentScopeId));
 
-    return i + RECORD_SIZE.SendOp;
+    console.assert(valueLength + 4 >= 0);
+    return valueLength + 4 /* 4 byte for the length */
   }
 
   private readReceiveOp(i: number, data: DataView,
@@ -188,8 +197,6 @@ export class TraceParser {
     this.execData.addRawReceiveOp(new RawReceiveOp(
       this.receiveOps[marker], sourceId, currentActivityId,
       currentScopeId));
-
-    return i + RECORD_SIZE.ReceiveOp;
   }
 
   public parseTrace(data: DataView) {
@@ -207,29 +214,34 @@ export class TraceParser {
       const marker = data.getUint8(i);
       switch (this.parseTable[marker]) {
         case TraceRecords.ActivityCreation:
-          i = this.readActivityCreation(i, data, currentActivityId, currentScopeId);
+          this.readActivityCreation(i, data, currentActivityId, currentScopeId);
+          i += RECORD_SIZE.ActivityCreation;
           break;
         case TraceRecords.ActivityCompletion:
           this.execData.completeActivity(currentActivityId);
           i += RECORD_SIZE.ActivityCompletion;
           break;
         case TraceRecords.DynamicScopeStart:
-          i = this.readScopeStart(i, data, currentActivityId, currentScopeId);
+          this.readScopeStart(i, data, currentActivityId, currentScopeId);
+          i += RECORD_SIZE.DynamicScopeStart;
           break;
         case TraceRecords.DynamicScopeEnd:
           this.execData.endScope(currentScopeId);
           i += RECORD_SIZE.DynamicScopeEnd;
           break;
         case TraceRecords.PassiveEntityCreation:
-          i = this.readEntityCreation(i, data, currentActivityId, currentScopeId);
+          this.readEntityCreation(i, data, currentActivityId, currentScopeId);
+          i += RECORD_SIZE.PassiveEntityCreation;
           break;
         case TraceRecords.PassiveEntityCompletion:
           throw new Error("Should never be reached. Is not generated by Trace Buffer.");
         case TraceRecords.SendOp:
-          i = this.readSendOp(i, data, currentActivityId, currentScopeId);
+          const dataLength = this.readSendOp(i, data, currentActivityId, currentScopeId);
+          i += RECORD_SIZE.SendOp + dataLength;
           break;
         case TraceRecords.ReceiveOp:
-          i = this.readReceiveOp(i, data, currentActivityId, currentScopeId);
+          this.readReceiveOp(i, data, currentActivityId, currentScopeId);
+          i += RECORD_SIZE.ReceiveOp;
           break;
         case TraceRecords.ImplThread: {
           /* currentImplThreadId = */ this.readLong(data, i + 1);
@@ -240,6 +252,10 @@ export class TraceParser {
           currentActivityId = this.readLong(data, i + 1);
           /* currentActivityBufferId = */ data.getUint32(i + 9, true);
           i += RECORD_SIZE.ImplThreadCurrentActivity;
+          break;
+        }
+        case TraceRecords.MessageReceiveOp: {
+          i += RECORD_SIZE.MessageReceiveOp;
           break;
         }
         default:

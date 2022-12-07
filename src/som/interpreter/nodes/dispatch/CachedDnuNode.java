@@ -19,9 +19,11 @@ import som.interpreter.Types;
 import som.primitives.SystemPrims.PrintStackTracePrim;
 import som.vm.Symbols;
 import som.vm.VmSettings;
+import som.vmobjects.SArray;
 import som.vmobjects.SClass;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
+import tools.debugger.asyncstacktraces.ShadowStackEntryLoad;
 
 
 public final class CachedDnuNode extends AbstractDispatchNode {
@@ -31,6 +33,8 @@ public final class CachedDnuNode extends AbstractDispatchNode {
 
   private final DispatchGuard guard;
   private final SSymbol       selector;
+
+  @Child protected ShadowStackEntryLoad shadowStackEntryLoad = ShadowStackEntryLoad.create();
 
   public CachedDnuNode(final SClass rcvrClass, final SSymbol selector,
       final DispatchGuard guard, final VM vm,
@@ -47,6 +51,13 @@ public final class CachedDnuNode extends AbstractDispatchNode {
   public Object executeDispatch(final VirtualFrame frame, final Object[] arguments) {
     boolean match;
     Object rcvr = arguments[0];
+    // Here we fall back to the slow case since DNU sends
+    // are just too uncommon and we don't want to recreate
+    // the stack across DNUs
+    if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+      SArguments.setShadowStackEntryWithCache(arguments, this,
+          shadowStackEntryLoad, frame, false);
+    }
     try {
       match = guard.entryMatches(rcvr);
     } catch (InvalidAssumptionException e) {
@@ -66,9 +77,17 @@ public final class CachedDnuNode extends AbstractDispatchNode {
       Output.errorPrintln("Lookup of " + selector + " failed in "
           + Types.getClassOf(rcvr).getName().getString());
     }
-
-    Object[] argsArr = new Object[] {
-        rcvr, selector, SArguments.getArgumentsWithoutReceiver(arguments)};
+    Object[] argsArr;
+    SArray.SImmutableArray dnuArguments = SArguments.getArgumentsWithoutReceiver(arguments);
+    if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+      argsArr = new Object[] {
+          rcvr, selector, dnuArguments,
+          arguments[arguments.length - 1]
+      };
+    } else {
+      argsArr = new Object[] {
+          rcvr, selector, dnuArguments};
+    }
     return cachedMethod.call(argsArr);
   }
 

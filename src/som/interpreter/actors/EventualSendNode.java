@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.frame.VirtualFrame;
@@ -20,6 +19,7 @@ import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
 import som.VM;
+import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.actors.EventualMessage.DirectMessage;
 import som.interpreter.actors.EventualMessage.PromiseSendMessage;
@@ -28,7 +28,7 @@ import som.interpreter.actors.ReceivedMessage.ReceivedMessageForVMMain;
 import som.interpreter.actors.RegisterOnPromiseNode.RegisterWhenResolved;
 import som.interpreter.actors.SPromise.SResolver;
 import som.interpreter.nodes.ExpressionNode;
-import som.interpreter.nodes.InternalObjectArrayNode;
+import som.interpreter.nodes.InternalObjectArrayNode.ArgumentEvaluationNode;
 import som.interpreter.nodes.MessageSendNode;
 import som.interpreter.nodes.MessageSendNode.AbstractMessageSendNode;
 import som.interpreter.nodes.SOMNode;
@@ -39,10 +39,10 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.Tags.EventualMessageSend;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.debugger.breakpoints.Breakpoints;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.SendOp;
 import tools.debugger.nodes.AbstractBreakpointNode;
-import tools.debugger.session.Breakpoints;
 import tools.dym.DynamicMetrics;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
@@ -53,11 +53,11 @@ public class EventualSendNode extends ExprWithTagsNode {
   public static final AtomicLong numPromisesAvoided =
       DynamicMetrics.createLong("Num.Promises.Avoided");
 
-  @Child protected InternalObjectArrayNode arguments;
-  @Child protected SendNode                send;
+  @Child protected ArgumentEvaluationNode arguments;
+  @Child protected SendNode               send;
 
   public EventualSendNode(final SSymbol selector, final int numArgs,
-      final InternalObjectArrayNode arguments, final SourceSection source,
+      final ArgumentEvaluationNode arguments, final SourceSection source,
       final SourceSection sendOperator, final SomLanguage lang) {
     this.arguments = arguments;
     this.send = SendNodeGen.create(selector, createArgWrapper(numArgs),
@@ -80,13 +80,17 @@ public class EventualSendNode extends ExprWithTagsNode {
     return send.execute(frame, args);
   }
 
+  public SSymbol getSentSymbol() {
+    return SOMNode.unwrapIfNecessary(send).getSelector();
+  }
+
   public static RootCallTarget createOnReceiveCallTarget(final SSymbol selector,
       final SourceSection source, final SomLanguage lang) {
 
     AbstractMessageSendNode invoke = MessageSendNode.createGeneric(selector, null, source);
     ReceivedMessage receivedMsg = new ReceivedMessage(invoke, selector, lang);
 
-    return Truffle.getRuntime().createCallTarget(receivedMsg);
+    return receivedMsg.getCallTarget();
   }
 
   public static RootCallTarget createOnReceiveCallTargetForVMMain(final SSymbol selector,
@@ -96,7 +100,7 @@ public class EventualSendNode extends ExprWithTagsNode {
     AbstractMessageSendNode invoke = MessageSendNode.createGeneric(selector, null, source);
     ReceivedMessage receivedMsg = new ReceivedMessageForVMMain(invoke, selector, future, lang);
 
-    return Truffle.getRuntime().createCallTarget(receivedMsg);
+    return receivedMsg.getCallTarget();
   }
 
   private static WrapReferenceNode[] createArgWrapper(final int numArgs) {
@@ -205,12 +209,11 @@ public class EventualSendNode extends ExprWithTagsNode {
       SFarReference rcvr = (SFarReference) args[0];
       Actor target = rcvr.getActor();
 
-      for (int i = 0; i < args.length; i++) {
+      for (int i = 0; i < SArguments.getLengthWithoutShadowStack(args); i++) {
         args[i] = wrapArgs[i].execute(args[i], target, owner);
       }
 
-      assert !(args[0] instanceof SFarReference)
-          : "This should not happen for this specialization, but it is handled in determineTargetAndWrapArguments(.)";
+      assert !(args[0] instanceof SFarReference) : "This should not happen for this specialization, but it is handled in determineTargetAndWrapArguments(.)";
       assert !(args[0] instanceof SPromise) : "Should not happen either, but just to be sure";
 
       DirectMessage msg = new DirectMessage(target, selector, args,
@@ -226,32 +229,44 @@ public class EventualSendNode extends ExprWithTagsNode {
 
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
-            target.getId());
+            target.getId(), msg.getSelector(), msg.getTarget().getId(),
+            msg.getTargetSourceSection());
       }
 
       target.send(msg, actorPool);
     }
 
-    protected void sendPromiseMessage(final Object[] args, final SPromise rcvr,
-        final SResolver resolver, final RegisterWhenResolved registerNode) {
-      assert rcvr.getOwner() == EventualMessage.getActorCurrentMessageIsExecutionOn()
-          : "think this should be true because the promise is an Object and owned by this specific actor";
+    protected void sendPromiseMessage(final VirtualFrame frame, final Object[] args,
+        final SPromise rcvr, final SResolver resolver,
+        final RegisterWhenResolved registerNode) {
+      assert rcvr.getOwner() == EventualMessage.getActorCurrentMessageIsExecutionOn() : "think this should be true because the promise is an Object and owned by this specific actor";
 
       PromiseSendMessage msg = new PromiseSendMessage(selector, args,
           rcvr.getOwner(), resolver, onReceive,
           messageReceiverBreakpoint.executeShouldHalt(),
           promiseResolverBreakpoint.executeShouldHalt());
 
-      if (VmSettings.KOMPOS_TRACING) {
-        KomposTrace.sendOperation(SendOp.PROMISE_MSG, msg.getMessageId(),
-            rcvr.getPromiseId());
+      Actor target = null;
+      if (isFarRefRcvr(args)) {
+        SFarReference farReference = (SFarReference) args[0];
+        target = farReference.getActor();
       }
 
-      registerNode.register(rcvr, msg, rcvr.getOwner());
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.sendOperation(SendOp.PROMISE_MSG, msg.getMessageId(),
+            rcvr.getPromiseId(), msg.getSelector(), target != null ? target.getId() : -1,
+            msg.getTargetSourceSection());
+      }
+
+      registerNode.register(frame, rcvr, msg, rcvr.getOwner());
     }
 
     protected RegisterWhenResolved createRegisterNode() {
       return new RegisterWhenResolved(actorPool);
+    }
+
+    public SSymbol getSelector() {
+      return selector;
     }
 
     @Override
@@ -273,7 +288,8 @@ public class EventualSendNode extends ExprWithTagsNode {
     }
 
     @Specialization(guards = {"isResultUsed()", "isPromiseRcvr(args)"})
-    public final SPromise toPromiseWithResultPromise(final Object[] args,
+    public final SPromise toPromiseWithResultPromise(final VirtualFrame frame,
+        final Object[] args,
         @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
       SPromise rcvr = (SPromise) args[0];
 
@@ -282,7 +298,7 @@ public class EventualSendNode extends ExprWithTagsNode {
           false, promiseResolutionBreakpoint.executeShouldHalt(), source);
       SResolver resolver = SPromise.createResolver(promise);
 
-      sendPromiseMessage(args, rcvr, resolver, registerNode);
+      sendPromiseMessage(frame, args, rcvr, resolver, registerNode);
       return promise;
     }
 
@@ -301,7 +317,8 @@ public class EventualSendNode extends ExprWithTagsNode {
 
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
-            current.getId());
+            current.getId(), msg.getSelector(), msg.getTarget().getId(),
+            msg.getTargetSourceSection());
       }
 
       if (VmSettings.SENDER_SIDE_REPLAY) {
@@ -329,9 +346,10 @@ public class EventualSendNode extends ExprWithTagsNode {
     }
 
     @Specialization(guards = {"!isResultUsed()", "isPromiseRcvr(args)"})
-    public final Object toPromiseWithoutResultPromise(final Object[] args,
+    public final Object toPromiseWithoutResultPromise(final VirtualFrame frame,
+        final Object[] args,
         @Cached("createRegisterNode()") final RegisterWhenResolved registerNode) {
-      sendPromiseMessage(args, (SPromise) args[0], null, registerNode);
+      sendPromiseMessage(frame, args, (SPromise) args[0], null, registerNode);
 
       if (VmSettings.DYNAMIC_METRICS) {
         numPromisesAvoided.getAndIncrement();
@@ -352,7 +370,8 @@ public class EventualSendNode extends ExprWithTagsNode {
 
       if (VmSettings.KOMPOS_TRACING) {
         KomposTrace.sendOperation(SendOp.ACTOR_MSG, msg.getMessageId(),
-            current.getId());
+            current.getId(), msg.getSelector(), msg.getTarget().getId(),
+            msg.getTargetSourceSection());
       }
 
       if (VmSettings.SENDER_SIDE_REPLAY) {

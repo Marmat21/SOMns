@@ -8,12 +8,15 @@ import java.io.RandomAccessFile;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.profiles.BranchProfile;
 
+import som.interpreter.SArguments;
 import som.interpreter.nodes.ExceptionSignalingNode;
 import som.interpreter.nodes.dispatch.BlockDispatchNode;
 import som.vm.NotYetImplementedException;
 import som.vm.Symbols;
+import som.vm.VmSettings;
 import som.vm.constants.Classes;
 import som.vmobjects.SArray.SMutableArray;
 
@@ -46,15 +49,16 @@ public class SFileDescriptor extends SObjectWithClass {
     f = new File(uri);
   }
 
-  @TruffleBoundary
-  public Object openFile(final SBlock fail, final BlockDispatchNode dispatchHandler) {
+  // @TruffleBoundary
+  public Object openFile(final VirtualFrame frame, final SBlock fail,
+      final BlockDispatchNode dispatchHandler) {
     long[] storage = new long[bufferSize];
     buffer = new SMutableArray(storage, Classes.arrayClass);
 
     try {
       raf = open();
     } catch (FileNotFoundException e) {
-      return dispatchHandler.executeDispatch(new Object[] {fail, FILE_NOT_FOUND});
+      return dispatchHandler.executeDispatch(frame, new Object[] {fail, FILE_NOT_FOUND});
     }
 
     return this;
@@ -66,7 +70,11 @@ public class SFileDescriptor extends SObjectWithClass {
   }
 
   @TruffleBoundary
-  public void closeFile(final ExceptionSignalingNode ioException) {
+  private String getMessage(final IOException e) {
+    return e.getMessage();
+  }
+
+  public void closeFile(final VirtualFrame frame, final ExceptionSignalingNode ioException) {
     if (raf == null) {
       return;
     }
@@ -74,7 +82,7 @@ public class SFileDescriptor extends SObjectWithClass {
     try {
       closeFile();
     } catch (IOException e) {
-      ioException.signal(e.getMessage());
+      ioException.signal(frame, getMessage(e));
     }
   }
 
@@ -84,17 +92,25 @@ public class SFileDescriptor extends SObjectWithClass {
     raf = null;
   }
 
-  public int read(final long position, final SBlock fail,
+  public int read(final VirtualFrame frame, final long position, final SBlock fail,
       final BlockDispatchNode dispatchHandler, final BranchProfile errorCases) {
+    Object[] arguments;
+    if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+      arguments = new Object[] {fail, null, SArguments.getShadowStackEntry(frame)};
+    } else {
+      arguments = new Object[] {fail, null};
+    }
     if (raf == null) {
       errorCases.enter();
-      fail.getMethod().invoke(new Object[] {fail, FILE_IS_CLOSED});
+      arguments[1] = FILE_IS_CLOSED;
+      fail.getMethod().invoke(arguments);
       return 0;
     }
 
     if (accessMode == AccessModes.write) {
       errorCases.enter();
-      fail.getMethod().invoke(new Object[] {fail, WRITE_ONLY_MODE});
+      arguments[1] = WRITE_ONLY_MODE;
+      fail.getMethod().invoke(arguments);
       return 0;
     }
 
@@ -109,7 +125,8 @@ public class SFileDescriptor extends SObjectWithClass {
       bytes = read(position, buff);
     } catch (IOException e) {
       errorCases.enter();
-      dispatchHandler.executeDispatch(new Object[] {fail, toString(e)});
+      arguments[2] = toString(e);
+      dispatchHandler.executeDispatch(frame, arguments);
     }
 
     // move read data to the storage
@@ -133,12 +150,12 @@ public class SFileDescriptor extends SObjectWithClass {
     return e.toString();
   }
 
-  public void write(final int nBytes, final long position, final SBlock fail,
-      final BlockDispatchNode dispatchHandler, final ExceptionSignalingNode ioException,
-      final BranchProfile errorCases) {
+  public void write(final VirtualFrame frame, final int nBytes, final long position,
+      final SBlock fail, final BlockDispatchNode dispatchHandler,
+      final ExceptionSignalingNode ioException, final BranchProfile errorCases) {
     if (raf == null) {
       errorCases.enter();
-      dispatchHandler.executeDispatch(new Object[] {fail, FILE_IS_CLOSED});
+      dispatchHandler.executeDispatch(frame, new Object[] {fail, FILE_IS_CLOSED});
       return;
     }
 
@@ -155,7 +172,7 @@ public class SFileDescriptor extends SObjectWithClass {
       long val = storage[i];
       if (val <= Byte.MIN_VALUE && Byte.MAX_VALUE <= val) {
         errorCases.enter();
-        ioException.signal(errorMsg(val));
+        ioException.signal(frame, errorMsg(val));
       }
       buff[i] = (byte) val;
     }
@@ -164,7 +181,7 @@ public class SFileDescriptor extends SObjectWithClass {
       write(nBytes, position, buff);
     } catch (IOException e) {
       errorCases.enter();
-      dispatchHandler.executeDispatch(new Object[] {fail, toString(e)});
+      dispatchHandler.executeDispatch(frame, new Object[] {fail, toString(e)});
     }
   }
 
@@ -180,12 +197,11 @@ public class SFileDescriptor extends SObjectWithClass {
     raf.write(buff, 0, nBytes);
   }
 
-  @TruffleBoundary
-  public long getFileSize(final ExceptionSignalingNode ioException) {
+  public long getFileSize(final VirtualFrame frame, final ExceptionSignalingNode ioException) {
     try {
       return length();
     } catch (IOException e) {
-      ioException.signal(e.getMessage());
+      ioException.signal(frame, getMessage(e));
     }
     return 0;
   }

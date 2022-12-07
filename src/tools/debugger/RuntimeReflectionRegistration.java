@@ -13,12 +13,12 @@ import org.graalvm.nativeimage.hosted.RuntimeReflection;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import tools.debugger.breakpoints.BreakpointInfo;
+import tools.debugger.breakpoints.LineBreakpoint;
+import tools.debugger.breakpoints.SectionBreakpoint;
 import tools.debugger.message.*;
 import tools.debugger.message.Message.IncommingMessage;
 import tools.debugger.message.Message.OutgoingMessage;
-import tools.debugger.session.BreakpointInfo;
-import tools.debugger.session.LineBreakpoint;
-import tools.debugger.session.SectionBreakpoint;
 
 
 /**
@@ -64,6 +64,8 @@ public class RuntimeReflectionRegistration implements Feature {
     outMsgs.register(ScopesResponse.class);
     outMsgs.register(VariablesResponse.class);
     outMsgs.register(ProgramInfoResponse.class);
+    outMsgs.register("pauseActorResponse", PauseActorResponse.class);
+    outMsgs.register("resumeActorResponse", ResumeActorResponse.class);
 
     ClassGroup inMsgs = new ClassGroup(IncommingMessage.class, "action", true);
     inMsgs.register(InitializeConnection.class);
@@ -74,6 +76,8 @@ public class RuntimeReflectionRegistration implements Feature {
     inMsgs.register(VariablesRequest.class);
     inMsgs.register(ProgramInfoRequest.class);
     inMsgs.register(TraceDataRequest.class);
+    inMsgs.register(EvaluateExpressionRequest.class);
+    inMsgs.register("pauseActorMessageReceiver", PauseActorRequest.class);
     inMsgs.register(UpdateClass.class);
     inMsgs.register(RestartFrame.class);
 

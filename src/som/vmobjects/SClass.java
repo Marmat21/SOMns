@@ -133,7 +133,7 @@ public final class SClass extends SObjectWithClass {
     // Class loading can take considerable time and might be problematic here.
     // But seems better than running into a stack overflow in other places.
     while (!layout.isValid()) {
-      // TODO(JDK9): add call to Thread.onSpinWait() once moving to JDK9 support
+      Thread.onSpinWait();
       layout = instanceClassGroup.getInstanceLayout();
     }
 
@@ -328,8 +328,7 @@ public final class SClass extends SObjectWithClass {
    */
   public Dispatchable lookupMessage(final SSymbol selector,
       final AccessModifier hasAtLeast) {
-    assert hasAtLeast.ordinal() >= AccessModifier.PROTECTED.ordinal()
-        : "Access modifier should be protected or public";
+    assert hasAtLeast.ordinal() >= AccessModifier.PROTECTED.ordinal() : "Access modifier should be protected or public";
     VM.callerNeedsToBeOptimized("should never be called on fast path");
 
     Dispatchable disp = dispatchables.get(selector);

@@ -4,13 +4,17 @@ import java.util.LinkedList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.Node;
 
+import som.interpreter.SArguments;
 import som.interpreter.actors.EventualMessage.AbstractPromiseSendMessage;
 import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.SReplayPromise;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
+import som.vmobjects.SBlock;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 import tools.dym.DynamicMetrics;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceRecord;
@@ -34,7 +38,8 @@ public abstract class RegisterOnPromiseNode {
       }
     }
 
-    public void register(final SPromise promise, final PromiseMessage msg,
+    public void register(final VirtualFrame frame, final SPromise promise,
+        final PromiseMessage msg,
         final Actor current) {
 
       Object promiseValue;
@@ -75,6 +80,50 @@ public abstract class RegisterOnPromiseNode {
         }
 
         if (!promise.isResolvedUnsync()) {
+          if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+            // get info about the resolution context from the promise,
+            // we want to know where it was resolved, where the value is coming from
+            for (Object obj : msg.args) {
+              boolean promiseComplete =
+                  (obj instanceof SPromise) && promise.isCompleted();
+              // boolean promiseChained = (obj instanceof SPromise) && !((SPromise)
+              // promise).isCompleted();
+              if (obj instanceof SBlock || promiseComplete) {
+                ShadowStackEntry.EntryForPromiseResolution.ResolutionLocation onReceiveLocation =
+                    ShadowStackEntry.EntryForPromiseResolution.ResolutionLocation.ON_WHEN_RESOLVED;
+                // onReceiveLocation.setArg(msg.getTarget().getId() + " send by actor "+
+                // msg.getSender().getId());
+                // for whenResolved blocks or if promise is resolved, then create
+                // EntryForPromiseResolution
+                ShadowStackEntry resolutionEntry = ShadowStackEntry.createAtPromiseResolution(
+                    SArguments.getShadowStackEntry(frame),
+                    getParent().getParent(), onReceiveLocation, "", promise.promiseGroupOrNull());
+                assert !VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE
+                    || resolutionEntry != null;
+                SArguments.updateShadowStackEntry(msg.args, resolutionEntry);
+              }
+              // else if (promiseChained) {
+              // ShadowStackEntry entry = (ShadowStackEntry) msg.args[msg.args.length - 1];
+              // assert entry != null && entry instanceof ShadowStackEntry.EntryAtMessageSend;
+              // ShadowStackEntry shadowStackEntry = SArguments.getShadowStackEntry(frame);
+              //
+              // // entry.setPreviousShadowStackEntry(shadowStackEntry);
+              //
+              // so.println("-register msg args: "+entry.getSourceSection());
+              // so.println("shadow: "+shadowStackEntry.getSourceSection());
+
+              // assert maybeEntry != null && maybeEntry instanceof
+              // ShadowStackEntry.EntryForPromiseResolution;
+              // assert args[args.length - 1] instanceof ShadowStackEntry.EntryAtMessageSend;
+              // ShadowStackEntry.EntryAtMessageSend current =
+              // (ShadowStackEntry.EntryAtMessageSend) args[args.length - 1];
+              // SArguments.addEntryForPromiseResolution(current,
+              // (ShadowStackEntry.EntryForPromiseResolution) maybeEntry);
+
+              // }
+            }
+          }
+
           if (VmSettings.SENDER_SIDE_REPLAY) {
             ReplayRecord npr = current.getNextReplayEvent();
             assert npr.type == TraceRecord.MESSAGE;
@@ -118,7 +167,7 @@ public abstract class RegisterOnPromiseNode {
         if (VmSettings.DYNAMIC_METRICS) {
           numScheduledWhenResolved.incrementAndGet();
         }
-        schedule.execute(promise, msg, current);
+        schedule.execute(frame, promise, msg, current);
       }
     }
   }
@@ -134,7 +183,8 @@ public abstract class RegisterOnPromiseNode {
       }
     }
 
-    public void register(final SPromise promise, final PromiseMessage msg,
+    public void register(final VirtualFrame frame, final SPromise promise,
+        final PromiseMessage msg,
         final Actor current) {
 
       Object promiseValue;
@@ -157,6 +207,18 @@ public abstract class RegisterOnPromiseNode {
         }
 
         if (!promise.isErroredUnsync()) {
+
+          if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+            // TODO: I think, we need the info about the resolution context from the promise
+            // we want to know where it was resolved, where the value is coming from
+            ShadowStackEntry resolutionEntry = ShadowStackEntry.createAtPromiseResolution(
+                SArguments.getShadowStackEntry(frame),
+                getParent().getParent(),
+                ShadowStackEntry.EntryForPromiseResolution.ResolutionLocation.ON_WHEN_RESOLVED_ERROR,
+                "", promise.promiseGroupOrNull());
+            assert !VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE || resolutionEntry != null;
+            SArguments.setShadowStackEntry(msg.args, resolutionEntry);
+          }
 
           if (VmSettings.SENDER_SIDE_TRACING) {
             // This is whenResolved
@@ -195,7 +257,7 @@ public abstract class RegisterOnPromiseNode {
         if (VmSettings.DYNAMIC_METRICS) {
           numScheduledOnError.incrementAndGet();
         }
-        schedule.execute(promise, msg, current);
+        schedule.execute(frame, promise, msg, current);
       }
     }
   }

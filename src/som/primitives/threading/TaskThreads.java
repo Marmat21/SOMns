@@ -1,5 +1,7 @@
 package som.primitives.threading;
 
+import java.lang.reflect.Array;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory;
@@ -7,11 +9,10 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.RecursiveTask;
 
 import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.interop.InteropLibrary;
-import com.oracle.truffle.api.library.ExportLibrary;
 
 import som.VM;
 import som.interop.SomInteropObject;
+import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.objectstorage.ObjectTransitionSafepoint;
 import som.vm.Activity;
@@ -21,6 +22,7 @@ import som.vmobjects.SInvokable;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.TracingActivityThread;
 import tools.debugger.WebDebugger;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 import tools.debugger.entities.ActivityType;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
@@ -31,7 +33,6 @@ import tools.replay.nodes.TraceContextNodeGen;
 
 public final class TaskThreads {
 
-  @ExportLibrary(InteropLibrary.class)
   public abstract static class SomTaskOrThread extends RecursiveTask<Object>
       implements Activity, SomInteropObject {
     private static final long serialVersionUID = 4823503369882151811L;
@@ -42,8 +43,7 @@ public final class TaskThreads {
     public SomTaskOrThread(final Object[] argArray, final boolean stopOnRoot) {
       this.argArray = argArray;
       this.stopOnRoot = stopOnRoot;
-      assert argArray[0] instanceof SBlock
-          : "First argument of a block needs to be the block object";
+      assert argArray[0] instanceof SBlock : "First argument of a block needs to be the block object";
     }
 
     public final SInvokable getMethod() {
@@ -78,6 +78,14 @@ public final class TaskThreads {
 
         ForkJoinThread thread = (ForkJoinThread) Thread.currentThread();
         thread.task = this;
+        if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+          if (!(argArray[argArray.length - 1] instanceof ShadowStackEntry)) {
+            Object[] arguments = Arrays.copyOf(argArray, argArray.length + 1);
+            arguments[argArray.length] =
+                SArguments.instantiateTopShadowStackEntry(target.getRootNode());
+            return target.call(arguments);
+          }
+        }
         return target.call(argArray);
       } finally {
         ObjectTransitionSafepoint.INSTANCE.unregister();
@@ -149,6 +157,8 @@ public final class TaskThreads {
   }
 
   public static class ReplayForkJoinTask extends TracedForkJoinTask {
+    private static final long serialVersionUID = -6890370983233213629L;
+
     private final LinkedList<ReplayRecord> replayEvents;
     private final TraceParser              traceParser;
 
@@ -236,6 +246,8 @@ public final class TaskThreads {
   }
 
   public static class ReplayThreadTask extends TracedThreadTask {
+    private static final long serialVersionUID = -6616939317652631224L;
+
     private final LinkedList<ReplayRecord> replayEvents;
     private final TraceParser              traceParser;
 
