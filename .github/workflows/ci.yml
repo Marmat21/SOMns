@@ -8,31 +8,31 @@ jobs:
       fail-fast: false # we want all jobs to run, because they may fail independently
       matrix:
         include:
-          - os: macos-latest
-            job: test-osx
+          # - os: macos-latest
+          #   job: test-osx
 
           - os: ubuntu-20.04
             job: test-1
 
-          - os: ubuntu-20.04
-            job: test-2
+          # - os: ubuntu-20.04
+          #   job: test-2
 
-          - os: ubuntu-20.04
-            job: lint
+          # - os: ubuntu-20.04
+          #   job: lint
 
 
     runs-on: ubuntu-20.04 # ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Compile SOMns Jar and Unit Tests
+      - name: Compile SOMns 
         if: matrix.job != 'lint'
         run: |
           export JAVA_HOME=$JAVA_HOME_17_X64
-          ant -e jar unit-tests
+          ant -e jar
 
       - name: SOMns Test Suite
         if: matrix.job != 'lint'
@@ -40,43 +40,49 @@ jobs:
           export JAVA_HOME=$JAVA_HOME_17_X64
           ./som -G core-lib/TestSuite/TestRunner.ns
 
-      - name: Build Native Image
+      - name: SOMns Test Suite - Async Stack Traces
         if: matrix.job == 'test-1'
         run: |
           export JAVA_HOME=$JAVA_HOME_17_X64
-          ant -e native-tests
+          ./som -G -asts -astic core-lib/TestSuite/TestRunner.ns
 
-      - name: Kompos Tests
-        if: matrix.job == 'test-2'
-        run: |
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          ant -e kompos
-          cd tools/kompos
-          npm test
+      # - name: Build Native Image
+      #   if: matrix.job == 'test-1'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ant -e native-tests
 
-      - name: Dynamic Metrics Tests
-        if: matrix.job == 'test-osx'
-        run: |
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          ant -e dynamic-metrics-tests
+      # - name: Kompos Tests
+      #   if: matrix.job == 'test-2'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ant -e kompos
+      #     cd tools/kompos
+      #     npm test
 
-      - name: Super Instructions Tests
-        if: matrix.job == 'test-2'
-        run: |
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          ant -e superinstructions-tests
+      # - name: Dynamic Metrics Tests
+      #   if: matrix.job == 'test-osx'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ant -e dynamic-metrics-tests
 
-      - name: Replay Tests 1
-        if: matrix.job == 'test-1'
-        run: |
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          ./tests/replay/test.sh 1
+      # - name: Super Instructions Tests
+      #   if: matrix.job == 'test-2'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ant -e superinstructions-tests
 
-      - name: Replay Tests 2
-        if: matrix.job == 'test-2'
-        run: |
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          ./tests/replay/test.sh 2
+      # - name: Replay Tests 1
+      #   if: matrix.job == 'test-1'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ./tests/replay/test.sh 1
+
+      # - name: Replay Tests 2
+      #   if: matrix.job == 'test-2'
+      #   run: |
+      #     export JAVA_HOME=$JAVA_HOME_17_X64
+      #     ./tests/replay/test.sh 2
 
     # Disabled due to breaking changes in the tracing infrastructure. Not fixed to make merge of Snapshotting PR(#293) easier.
     #- name: Snapshot Tests
@@ -94,7 +100,7 @@ jobs:
         if: matrix.job == 'lint'
         run: |
            export ECLIPSE_TAR=eclipse.tar.gz
-           export ECLIPSE_URL=https://ftp.snt.utwente.nl/pub/software/eclipse/eclipse/downloads/drops4/R-4.23-202203080310/eclipse-SDK-4.23-linux-gtk-x86_64.tar.gz
+           export ECLIPSE_URL=https://mirror.dkm.cz/eclipse/eclipse/downloads/drops4/R-4.25-202208311800/eclipse-SDK-4.25-linux-gtk-x86_64.tar.gz
            curl ${ECLIPSE_URL} -o ${ECLIPSE_TAR}
            tar -C ${GITHUB_WORKSPACE}/.. -xzf ${ECLIPSE_TAR}
 
