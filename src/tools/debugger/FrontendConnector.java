@@ -28,9 +28,11 @@ import com.sun.net.httpserver.HttpServer;
 import bd.source.SourceCoordinate;
 import bd.source.TaggedSourceCoordinate;
 import bd.tools.structure.StructuralProbe;
+
 import som.VM;
 import som.compiler.MixinDefinition;
 import som.compiler.Variable;
+import som.interpreter.actors.Actor;
 import som.interpreter.nodes.dispatch.DispatchGuard;
 import som.interpreter.nodes.dispatch.Dispatchable;
 import som.interpreter.objectstorage.ClassFactory;
@@ -38,16 +40,20 @@ import som.interpreter.objectstorage.StorageLocation;
 import som.vm.VmSettings;
 import som.vmobjects.SInvokable;
 import som.vmobjects.SSymbol;
+
 import tools.Tagging;
 import tools.TraceData;
 import tools.concurrency.TracingBackend;
 import tools.debugger.WebSocketHandler.MessageHandler;
 import tools.debugger.WebSocketHandler.TraceHandler;
+import tools.debugger.breakpoints.Breakpoints;
+import tools.debugger.breakpoints.LineBreakpoint;
 import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.DynamicScopeType;
 import tools.debugger.entities.EntityType;
 import tools.debugger.entities.Implementation;
+import tools.debugger.entities.MessageReception;
 import tools.debugger.entities.PassiveEntityType;
 import tools.debugger.entities.ReceiveOp;
 import tools.debugger.entities.SendOp;
@@ -56,7 +62,9 @@ import tools.debugger.frontend.Suspension;
 import tools.debugger.message.InitializationResponse;
 import tools.debugger.message.Message;
 import tools.debugger.message.Message.OutgoingMessage;
+import tools.debugger.message.PauseActorResponse;
 import tools.debugger.message.ProgramInfoResponse;
+import tools.debugger.message.ResumeActorResponse;
 import tools.debugger.message.ScopesResponse;
 import tools.debugger.message.SourceMessage;
 import tools.debugger.message.SourceMessage.SourceData;
@@ -65,8 +73,6 @@ import tools.debugger.message.StoppedMessage;
 import tools.debugger.message.SymbolMessage;
 import tools.debugger.message.VariablesRequest.FilterType;
 import tools.debugger.message.VariablesResponse;
-import tools.debugger.session.Breakpoints;
-import tools.debugger.session.LineBreakpoint;
 
 
 /**
@@ -102,6 +108,8 @@ public class FrontendConnector {
    */
   private CompletableFuture<WebSocket> clientConnected;
 
+  private CompletableFuture<WebSocket> messageSocketInitialized;
+
   private final Gson       gson;
   private static final int MESSAGE_PORT   = 7977;
   private static final int TRACE_PORT     = 7978;
@@ -119,6 +127,7 @@ public class FrontendConnector {
     this.gson = gson;
 
     clientConnected = new CompletableFuture<WebSocket>();
+    messageSocketInitialized = new CompletableFuture<WebSocket>();
 
     try {
       log("[DEBUGGER] Initialize HTTP and WebSocket Server for Debugger");
@@ -267,10 +276,6 @@ public class FrontendConnector {
     send(new SymbolMessage(symbolsToWrite));
   }
 
-  public void sendTracingData(final ByteBuffer buffer) {
-    traceSocket.send(buffer);
-  }
-
   public void awaitClient() {
     assert VmSettings.TRUFFLE_DEBUGGER_ENABLED;
     assert clientConnected != null;
@@ -281,6 +286,7 @@ public class FrontendConnector {
     try {
       messageSocket = clientConnected.get();
       assert messageSocket != null;
+      messageSocketInitialized.complete(messageSocket);
 
       traceSocket = traceHandler.getConnection().get();
       assert traceSocket != null;
@@ -317,8 +323,23 @@ public class FrontendConnector {
     }
   }
 
+  public void sendTracingData(final ByteBuffer buffer) {
+    // log("[DEBUGGER] Trace buffers sent: "+buffer);
+    traceSocket.send(buffer);
+  }
+
   public void sendProgramInfo() {
-    send(ProgramInfoResponse.create(webDebugger.vm.getArguments()));
+    // when the server has really started, i.e. the client has connected, then do the send
+    messageSocketInitialized.thenRun(
+        () -> send(ProgramInfoResponse.create(webDebugger.vm.getArguments())));
+  }
+
+  public void sendPauseActorResponse(final long pausedActorId) {
+    send(PauseActorResponse.create(pausedActorId));
+  }
+
+  public void sendResumeActorResponse(final long actorId) {
+    send(ResumeActorResponse.create(actorId));
   }
 
   public void registerOrUpdate(final LineBreakpoint bp) {
@@ -333,7 +354,11 @@ public class FrontendConnector {
     return webDebugger.getSuspension(TraceData.getActivityIdFromGlobalValId(globalId));
   }
 
-  static void log(final String str) {
+  public Actor getActorById(final long activityId) {
+    return webDebugger.getActorById(activityId);
+  }
+
+  public static void log(final String str) {
     // Checkstyle: stop
     System.out.println(str);
     // Checkstyle: resume
@@ -343,10 +368,19 @@ public class FrontendConnector {
     Runtime.getRuntime().addShutdownHook(new Thread(() -> closeAllSockets()));
 
     clientConnected.complete(conn);
+
+    // when the server has really started, i.e. the client has connected, then do the send
+    messageSocketInitialized.thenRun(() -> sendInitResponse());
+  }
+
+  private void sendInitResponse() {
+    // log("[DEBUGGER] Message socket initialized "+messageSocketInitialized.isDone());
+
     send(InitializationResponse.create(EntityType.values(),
         ActivityType.values(), PassiveEntityType.values(),
         DynamicScopeType.values(), SendOp.values(), ReceiveOp.values(),
-        BreakpointType.values(), SteppingType.values(), Implementation.values()));
+        BreakpointType.values(), SteppingType.values(), Implementation.values(),
+        MessageReception.values()));
   }
 
   private void closeAllSockets() {

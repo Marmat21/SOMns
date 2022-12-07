@@ -3,8 +3,8 @@ package tools.debugger.message;
 import org.java_websocket.WebSocket;
 
 import tools.debugger.FrontendConnector;
+import tools.debugger.breakpoints.BreakpointInfo;
 import tools.debugger.message.Message.IncommingMessage;
-import tools.debugger.session.BreakpointInfo;
 
 
 public class UpdateBreakpoint extends IncommingMessage {

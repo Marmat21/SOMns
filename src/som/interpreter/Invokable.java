@@ -1,7 +1,5 @@
 package som.interpreter;
 
-import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
@@ -47,6 +45,10 @@ public abstract class Invokable extends RootNode {
     return isAtomic;
   }
 
+  public ExpressionNode getBodyNode() {
+    return expressionOrSequence;
+  }
+
   @Override
   public final Object execute(final VirtualFrame frame) {
     return expressionOrSequence.executeGeneric(frame);
@@ -74,10 +76,6 @@ public abstract class Invokable extends RootNode {
   @Override
   protected final RootNode cloneUninitialized() {
     return (RootNode) deepCopy();
-  }
-
-  public final RootCallTarget createCallTarget() {
-    return Truffle.getRuntime().createCallTarget(this);
   }
 
   @Override

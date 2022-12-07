@@ -24,6 +24,7 @@ import bd.tools.nodes.Invocation;
 import som.VM;
 import som.compiler.AccessModifier;
 import som.interpreter.Invokable;
+import som.interpreter.SArguments;
 import som.interpreter.TruffleCompiler;
 import som.interpreter.actors.ReceivedMessage;
 import som.interpreter.nodes.dispatch.AbstractDispatchNode;
@@ -35,7 +36,9 @@ import som.interpreter.nodes.nary.ExprWithTagsNode;
 import som.primitives.reflection.AbstractSymbolDispatch;
 import som.vm.NotYetImplementedException;
 import som.vm.Primitives;
+import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
 import tools.dym.Tags.VirtualInvoke;
 import tools.dym.profiles.DispatchProfile;
 
@@ -156,12 +159,21 @@ public final class MessageSendNode {
 
     @ExplodeLoop
     private Object[] evaluateArguments(final VirtualFrame frame) {
-      Object[] arguments = new Object[argumentNodes.length];
+      Object[] arguments = SArguments.allocateArgumentsArray(argumentNodes);
       for (int i = 0; i < argumentNodes.length; i++) {
         arguments[i] = argumentNodes[i].executeGeneric(frame);
-        assert arguments[i] != null
-            : "Some expression evaluated to null, which is not supported.";
+        if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE
+            && arguments[i] instanceof ShadowStackEntry) {
+          CompilerDirectives.transferToInterpreter();
+          insert(ExceptionSignalingNode.createArgumentErrorNode(sourceSection)).signal(frame,
+              frame.getArguments());
+        }
+        assert arguments[i] != null : "Some expression evaluated to null, which is not supported.";
+        assert !(arguments[i] instanceof ShadowStackEntry);
       }
+      // We allocate room for the arguments, but it is not set if non
+      // SArguments.setShadowStackEntryWithCache(arguments, this, shadowStackEntryLoad, frame,
+      // false);
       return arguments;
     }
 

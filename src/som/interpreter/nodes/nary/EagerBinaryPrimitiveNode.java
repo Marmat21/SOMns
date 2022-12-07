@@ -10,6 +10,7 @@ import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.MessageSendNode;
 import som.interpreter.nodes.MessageSendNode.GenericMessageSendNode;
 import som.vm.NotYetImplementedException;
+import som.vm.VmSettings;
 import som.vmobjects.SSymbol;
 
 
@@ -34,10 +35,9 @@ public final class EagerBinaryPrimitiveNode extends EagerPrimitiveNode {
 
   @Override
   public boolean hasTag(final Class<? extends Tag> tag) {
-    assert !(primitive instanceof WrapperNode)
-        : "primitive can't be WrapperNodes to avoid double wrapping. It is: "
-            + primitive.getClass().getSimpleName() + " and contains a "
-            + ((WrapperNode) primitive).getDelegateNode().getClass().getSimpleName();
+    assert !(primitive instanceof WrapperNode) : "primitive can't be WrapperNodes to avoid double wrapping. It is: "
+        + primitive.getClass().getSimpleName() + " and contains a "
+        + ((WrapperNode) primitive).getDelegateNode().getClass().getSimpleName();
     return primitive.hasTagIgnoringEagerness(tag);
   }
 
@@ -94,15 +94,28 @@ public final class EagerBinaryPrimitiveNode extends EagerPrimitiveNode {
     return executeEvaluated(frame, rcvr, arg);
   }
 
+  /** MATTEO: HERE IS THE SPOT IN WHICH I MIGHT BREAK EVERYTHING. **/
   public Object executeEvaluated(final VirtualFrame frame,
       final Object receiver, final Object argument) {
     try {
+      // if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+      // Object[] args;
+      //
+      // args = new Object[] {receiver, argument, null};
+      //
+      // return makeGenericSend().doPreEvaluated(frame, args);
+      // }
       return primitive.executeEvaluated(frame, receiver, argument);
     } catch (UnsupportedSpecializationException e) {
       TruffleCompiler.transferToInterpreterAndInvalidate(
           "Eager Primitive with unsupported specialization.");
-      return makeGenericSend().doPreEvaluated(frame,
-          new Object[] {receiver, argument});
+      Object[] args;
+      if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+        args = new Object[] {receiver, argument, null};
+      } else {
+        args = new Object[] {receiver, argument};
+      }
+      return makeGenericSend().doPreEvaluated(frame, args);
     }
   }
 
@@ -130,8 +143,7 @@ public final class EagerBinaryPrimitiveNode extends EagerPrimitiveNode {
     if (newNode instanceof ExprWithTagsNode) {
       ((ExprWithTagsNode) newNode).tagMark = primitive.tagMark;
     } else if (newNode instanceof WrapperNode) {
-      assert ((WrapperNode) newNode).getDelegateNode() == this
-          : "Wrapping should not also do specialization or other changes, I think";
+      assert ((WrapperNode) newNode).getDelegateNode() == this : "Wrapping should not also do specialization or other changes, I think";
     } else {
       throw new NotYetImplementedException();
     }

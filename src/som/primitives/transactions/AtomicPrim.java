@@ -8,6 +8,7 @@ import com.oracle.truffle.api.instrumentation.Tag;
 
 import bd.primitives.Primitive;
 import som.VM;
+import som.interpreter.SArguments;
 import som.interpreter.actors.SuspendExecutionNodeGen;
 import som.interpreter.nodes.nary.BinaryComplexOperation.BinarySystemOperation;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
@@ -18,11 +19,11 @@ import som.vmobjects.SClass;
 import tools.concurrency.Tags.Atomic;
 import tools.concurrency.Tags.ExpressionBreakpoint;
 import tools.concurrency.TracingActivityThread;
+import tools.debugger.breakpoints.Breakpoints;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.EntityType;
 import tools.debugger.entities.SteppingType;
 import tools.debugger.nodes.AbstractBreakpointNode;
-import tools.debugger.session.Breakpoints;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
@@ -67,8 +68,13 @@ public abstract class AtomicPrim extends BinarySystemOperation {
             vm.getWebDebugger().prepareSteppingAfterNextRootNode(Thread.currentThread());
           }
         }
-
-        Object result = block.getMethod().getAtomicCallTarget().call(new Object[] {block});
+        Object[] arguments;
+        if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+          arguments = new Object[] {block, SArguments.getShadowStackEntry(frame)};
+        } else {
+          arguments = new Object[] {block};
+        }
+        Object result = block.getMethod().getAtomicCallTarget().call(arguments);
 
         if (VmSettings.TRUFFLE_DEBUGGER_ENABLED &&
             SteppingType.STEP_TO_COMMIT.isSet()) {

@@ -40,11 +40,11 @@ import tools.concurrency.Tags.ChannelWrite;
 import tools.concurrency.Tags.ExpressionBreakpoint;
 import tools.concurrency.TracingActivityThread;
 import tools.debugger.WebDebugger;
+import tools.debugger.breakpoints.Breakpoints;
 import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.PassiveEntityType;
 import tools.debugger.nodes.AbstractBreakpointNode;
-import tools.debugger.session.Breakpoints;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
 import tools.replay.TraceRecord;
@@ -123,7 +123,11 @@ public abstract class ChannelPrimitives {
             Symbols.symbolFor("run"), AccessModifier.PROTECTED);
 
         beforeExec(disp);
-        disp.invoke(new Object[] {obj});
+        if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+          disp.invoke(new Object[] {obj, null});
+        } else {
+          disp.invoke(new Object[] {obj});
+        }
       } catch (Throwable t) {
         t.printStackTrace();
       } finally {
@@ -153,7 +157,6 @@ public abstract class ChannelPrimitives {
     private int          nextTraceBufferId;
 
     private final boolean stopOnRootNode;
-    private boolean       stopOnJoin;
 
     protected final VM vm;
 
@@ -205,13 +208,12 @@ public abstract class ChannelPrimitives {
 
     @Override
     public void setStepToJoin(final boolean val) {
-      stopOnJoin = val;
+      /* we used to store the val into a field, but the field didn't seem used. */
     }
   }
 
   public static class ReplayProcess extends TracingProcess {
     private final LinkedList<ReplayRecord> replayEvents;
-    private int                            children = 0;
 
     public ReplayProcess(final SObjectWithClass obj, final boolean stopOnRootNode,
         final VM vm) {
@@ -318,7 +320,7 @@ public abstract class ChannelPrimitives {
     public final Object write(final VirtualFrame frame, final SChannelOutput out,
         final Object val) {
       if (!isVal.executeBoolean(frame, val)) {
-        notAValue.signal(val);
+        notAValue.signal(frame, val);
       }
       try {
         out.writeAndSuspendReader(val, afterRead.executeShouldHalt(), traceWrite);

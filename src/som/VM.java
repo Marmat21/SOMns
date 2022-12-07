@@ -50,9 +50,10 @@ import som.vmobjects.SInvokable;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
+import tools.concurrency.TracingActors;
 import tools.concurrency.TracingBackend;
 import tools.debugger.WebDebugger;
-import tools.debugger.session.Breakpoints;
+import tools.debugger.breakpoints.Breakpoints;
 import tools.dym.DynamicMetrics;
 import tools.replay.TraceParser;
 import tools.snapshot.SnapshotBackend;
@@ -335,6 +336,7 @@ public final class VM {
     }
     if (VmSettings.KOMPOS_TRACING) {
       KomposTrace.recordMainActor(mainActor, objectSystem);
+      TracingActors.TracingActor.saveActor(mainActor);
     }
 
     language = lang;
@@ -354,12 +356,12 @@ public final class VM {
 
   public void enterContext() {
     assert context != null : "setupInstruments(env) must have been called first";
-    context.enter();
+    context.enter(null);
   }
 
   public void leaveContext() {
     assert context != null : "setupInstruments(env) must have been called first";
-    context.leave(null);
+    context.leave(null, null);
   }
 
   /**
@@ -377,8 +379,7 @@ public final class VM {
     }
 
     if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
-      assert options.webDebuggerEnabled
-          : "If debugging is enabled, we currently expect the web debugger to be used.";
+      assert options.webDebuggerEnabled : "If debugging is enabled, we currently expect the web debugger to be used.";
       Debugger debugger = Debugger.find(env);
 
       webDebugger = WebDebugger.find(env);
@@ -405,8 +406,7 @@ public final class VM {
     }
 
     if (VmSettings.TRACK_SNAPSHOT_ENTITIES) {
-      assert !options.siCandidateIdentifierEnabled
-          : "Currently, CandidateIdentifer and Snapshots are not compatible";
+      assert !options.siCandidateIdentifierEnabled : "Currently, CandidateIdentifer and Snapshots are not compatible";
       structuralProbe = SnapshotBackend.getProbe();
     }
 

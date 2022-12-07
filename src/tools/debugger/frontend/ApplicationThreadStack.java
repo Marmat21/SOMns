@@ -1,20 +1,21 @@
 package tools.debugger.frontend;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 
-import com.oracle.truffle.api.debug.DebugStackFrame;
 import com.oracle.truffle.api.debug.SuspendedEvent;
 import com.oracle.truffle.api.frame.Frame;
+import com.oracle.truffle.api.nodes.RootNode;
+import com.oracle.truffle.api.source.SourceSection;
 
 import som.interpreter.LexicalScope.MethodScope;
+import tools.debugger.asyncstacktraces.StackIterator;
 
 
 /**
  * Keeps information on the run-time stack of an application thread for
  * requests from the front-end. Is populated only on demand.
  */
-class ApplicationThreadStack {
+public class ApplicationThreadStack {
 
   /**
    * Track scopes that contain variables as well as objects.
@@ -24,30 +25,95 @@ class ApplicationThreadStack {
   final ArrayList<Object>     scopesAndObjects;
   final HashMap<Object, Long> scopesAndObjectsSet;
 
-  private final ArrayList<DebugStackFrame> stackFrames;
-  private final SuspendedEvent             event;
-  private final Suspension                 suspension;
+  private final ArrayList<StackFrame> stackFrames;
+  private final SuspendedEvent        event;
+  private final Suspension            suspension;
 
-  ApplicationThreadStack(final SuspendedEvent event, final Suspension suspension) {
-    this.event = event;
+  public static class StackFrame {
+    public final String        name;
+    public final SourceSection section;
+    public final Frame         frame;
+    public final boolean       asyncOperation;
+    private final RootNode     root;
+    public boolean fromMethodCache = false;
+
+    private StackFrame(){
+      asyncOperation = true;
+      name = "Not a Stack Frame";
+      section = null;
+      frame = null;
+      root = null;
+    }
+
+    public StackFrame(final String name, final RootNode root, final SourceSection section,
+        final Frame frame, final boolean asyncOperation) {
+      this(name,root,section,frame,asyncOperation,false);
+    }
+
+    public StackFrame(final String name, final RootNode root, final SourceSection section,
+                      final Frame frame, final boolean asyncOperation, final boolean fromMethodCache) {
+      this.name = name;
+      this.root = root;
+      this.section = section;
+      this.frame = frame;
+      this.asyncOperation = asyncOperation;
+      this.fromMethodCache = fromMethodCache;
+    }
+
+    public RootNode getRootNode() {
+      return root;
+    }
+
+    public boolean hasFrame() {
+      return frame != null;
+    }
+  }
+
+  public static class ParallelStack extends StackFrame {
+    public List<List<StackFrame>> parallelStacks;
+
+    public ParallelStack(List<List<StackFrame>> parallelStacks){
+      this.parallelStacks = parallelStacks;
+    }
+
+  }
+
+  ApplicationThreadStack(final Suspension suspension) {
+    this.event = suspension.getEvent();
     this.stackFrames = new ArrayList<>();
     this.scopesAndObjects = new ArrayList<>();
     this.scopesAndObjectsSet = new HashMap<>();
     this.suspension = suspension;
   }
 
-  ArrayList<DebugStackFrame> get() {
+  ArrayList<StackFrame> get() {
     if (stackFrames.isEmpty()) {
-      for (DebugStackFrame frame : event.getStackFrames()) {
-        stackFrames.add(frame);
+      StackIterator stack =
+          StackIterator.createSuspensionIterator(event.getStackFrames().iterator(),
+              suspension.getActivity().getId());
+
+      if (stack instanceof StackIterator.ShadowStackIterator.SuspensionShadowStackIterator) {
+        StackFrame topFrame =
+            ((StackIterator.ShadowStackIterator.SuspensionShadowStackIterator) stack).getTopFrame();
+        // get top frame first
+        stackFrames.add(topFrame);
       }
-      assert !stackFrames.isEmpty()
-          : "We expect that there is always at least one stack frame";
+
+      while (stack.hasNext()) {
+        StackFrame next = stack.next();
+        if (next != null) { // this validation is needed because at the moment
+                            // ShadowStackIterator.next can return null values for null shadows
+          stackFrames.add(next);
+        }
+      }
+      assert !stackFrames.isEmpty() : "We expect that there is always at least one stack frame";
+
     }
     return stackFrames;
   }
 
-  long addScope(final Frame frame, final MethodScope lexicalScope) {
+  long addScope(final Frame frame,
+      final MethodScope lexicalScope) {
     scopesAndObjects.add(new RuntimeScope(frame, lexicalScope));
     return getLastScopeOrVarId();
   }

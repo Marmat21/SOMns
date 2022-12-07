@@ -9,7 +9,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
 
@@ -58,7 +57,7 @@ public class Actor implements Activity {
 
   public static void initializeActorSystem(final SomLanguage lang) {
     ExecutorRootNode root = new ExecutorRootNode(lang);
-    executorRoot = Truffle.getRuntime().createCallTarget(root);
+    executorRoot = root.getCallTarget();
   }
 
   public static Actor createActor(final VM vm) {
@@ -140,10 +139,18 @@ public class Actor implements Activity {
       final ForkJoinPool actorPool) {
     assert msg.getTarget() == this;
 
+    assert msg.args[msg.args.length - 1] != null
+        || !VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE;
+
     if (firstMessage == null) {
       firstMessage = msg;
     } else {
       appendToMailbox(msg);
+    }
+    // so.println("doSend "+msg.getMessageId() + " actor "+this.getId());
+    // save messages in the trace when they are received
+    if (VmSettings.KOMPOS_TRACING) {
+      TracingActor.saveMessageReceived(this, msg);
     }
 
     if (!isExecuting) {
@@ -207,8 +214,7 @@ public class Actor implements Activity {
 
     @Override
     public void run() {
-      assert executorRoot != null
-          : "Actor system not initalized, call to initializeActorSystem(.) missing?";
+      assert executorRoot != null : "Actor system not initalized, call to initializeActorSystem(.) missing?";
       executorRoot.call(this);
     }
 
@@ -247,7 +253,25 @@ public class Actor implements Activity {
       }
 
       while (getCurrentMessagesOrCompleteExecution()) {
+        saveReceivedMessages(t);
         processCurrentMessages(t, dbg);
+      }
+
+      if (VmSettings.UNIFORM_TRACING || VmSettings.KOMPOS_TRACING) {
+        t.swapTracingBufferIfRequestedUnsync();
+      }
+      t.currentlyExecutingActor = null;
+    }
+
+    private void saveReceivedMessages(final ActorProcessingThread t) {
+      // save messages appended in mailbox in the trace before execute them
+      if (VmSettings.KOMPOS_TRACING) {
+        KomposTrace.actorMessageReception(firstMessage.getMessageId(), t);
+        if (size > 1) {
+          for (EventualMessage msg : mailboxExtension) {
+            KomposTrace.actorMessageReception(msg.getMessageId(), t);
+          }
+        }
       }
     }
 

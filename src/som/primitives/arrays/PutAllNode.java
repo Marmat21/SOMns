@@ -5,6 +5,7 @@ import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.frame.VirtualFrame;
 
 import bd.primitives.Primitive;
 import som.interpreter.nodes.dispatch.BlockDispatchNode;
@@ -51,15 +52,16 @@ public abstract class PutAllNode extends BinaryComplexOperation {
   }
 
   @Specialization
-  public SMutableArray doPutEvalBlock(final SMutableArray rcvr,
+  public SMutableArray doPutEvalBlock(VirtualFrame frame, final SMutableArray rcvr,
       final SBlock block, final long length) {
     if (length <= 0) {
       return rcvr;
     }
 
     try {
-      Object newStorage = ArraySetAllStrategy.evaluateFirstDetermineStorageAndEvaluateRest(
-          block, length, this.block);
+      Object newStorage =
+          ArraySetAllStrategy.evaluateFirstDetermineStorageAndEvaluateRest(frame,
+              block, length, this.block);
       rcvr.transitionTo(newStorage);
     } finally {
       if (CompilerDirectives.inInterpreter()) {

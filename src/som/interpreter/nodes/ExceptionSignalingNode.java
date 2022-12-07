@@ -3,10 +3,12 @@ package som.interpreter.nodes;
 import java.util.function.Supplier;
 
 import com.oracle.truffle.api.CompilerDirectives;
+import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.nodes.PreevaluatedExpression;
+import som.interpreter.SArguments;
 import som.vm.Symbols;
 import som.vm.constants.KernelObj;
 import som.vmobjects.SClass;
@@ -44,7 +46,7 @@ public abstract class ExceptionSignalingNode extends Node {
     return new ResolveModule(exceptionSelector, factorySelector, sourceSection, resolver);
   }
 
-  public abstract Object signal(Object... args);
+  public abstract Object signal(VirtualFrame frame, Object... args);
 
   private static final class ResolvedModule extends ExceptionSignalingNode {
     @Child protected ExpressionNode getExceptionClassNode;
@@ -63,22 +65,14 @@ public abstract class ExceptionSignalingNode extends Node {
     }
 
     @Override
-    public Object signal(final Object... args) {
+    public Object signal(VirtualFrame frame, final Object... args) {
       SClass exceptionClass =
-          (SClass) ((PreevaluatedExpression) getExceptionClassNode).doPreEvaluated(null,
+          (SClass) ((PreevaluatedExpression) getExceptionClassNode).doPreEvaluated(frame,
               new Object[] {module});
-      return ((PreevaluatedExpression) signalExceptionNode).doPreEvaluated(null,
-          mergeObjectWithArray(exceptionClass, args));
+      return ((PreevaluatedExpression) signalExceptionNode).doPreEvaluated(frame,
+          SArguments.getPlainArguments(exceptionClass, args));
     }
 
-    private Object[] mergeObjectWithArray(final Object o, final Object[] objects) {
-      Object[] allArgs = new Object[objects.length + 1];
-      allArgs[0] = o;
-      for (int i = 0; i < objects.length; i++) {
-        allArgs[i + 1] = objects[i];
-      }
-      return allArgs;
-    }
   }
 
   private static final class ResolveModule extends ExceptionSignalingNode {
@@ -96,12 +90,12 @@ public abstract class ExceptionSignalingNode extends Node {
     }
 
     @Override
-    public Object signal(final Object... args) {
+    public Object signal(VirtualFrame frame, final Object... args) {
       CompilerDirectives.transferToInterpreterAndInvalidate();
       SObject module = resolver.get();
       assert module != null : "Delayed lookup of module failed, still not available";
       return replace(new ResolvedModule(module, exceptionSelector, factorySelector,
-          sourceSection)).signal(args);
+          sourceSection)).signal(frame, args);
     }
   }
 
@@ -121,10 +115,10 @@ public abstract class ExceptionSignalingNode extends Node {
     }
 
     @Override
-    public Object signal(final Object... args) {
+    public Object signal(VirtualFrame frame, final Object... args) {
       CompilerDirectives.transferToInterpreterAndInvalidate();
       return replace(new ResolvedModule(module, exceptionSelector, factorySelector,
-          sourceSection)).signal(args);
+          sourceSection)).signal(frame, args);
     }
   }
 }

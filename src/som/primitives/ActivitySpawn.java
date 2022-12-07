@@ -1,7 +1,9 @@
 package som.primitives;
 
+import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
 
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.Cached;
@@ -16,6 +18,7 @@ import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
 import som.VM;
+import som.interpreter.SArguments;
 import som.interpreter.nodes.ExceptionSignalingNode;
 import som.interpreter.nodes.nary.BinaryComplexOperation.BinarySystemOperation;
 import som.interpreter.nodes.nary.TernaryExpressionNode.TernarySystemOperation;
@@ -45,10 +48,11 @@ import som.vmobjects.SSymbol;
 import tools.concurrency.KomposTrace;
 import tools.concurrency.Tags.ActivityCreation;
 import tools.concurrency.Tags.ExpressionBreakpoint;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.breakpoints.Breakpoints;
 import tools.debugger.entities.ActivityType;
 import tools.debugger.entities.BreakpointType;
 import tools.debugger.nodes.AbstractBreakpointNode;
-import tools.debugger.session.Breakpoints;
 import tools.replay.TraceRecord;
 import tools.replay.nodes.RecordEventNodes.RecordOneEvent;
 
@@ -155,12 +159,25 @@ public abstract class ActivitySpawn {
     }
 
     @Specialization(guards = "clazz == TaskClass")
-    @TruffleBoundary
-    public final SomForkJoinTask spawnTask(final SClass clazz, final SBlock block) {
-      SomForkJoinTask task = createTask(new Object[] {block},
+    public final SomForkJoinTask spawnTask(VirtualFrame frame, final SClass clazz,
+        final SBlock block) {
+      Object[] arguments;
+      if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+        ShadowStackEntry.EntryForTaskSpawn entry = ShadowStackEntry.createAtTaskSpawn(SArguments.getShadowStackEntry(frame),this);
+        arguments = new Object[] {block, entry };
+      } else {
+        arguments = new Object[] {block};
+      }
+
+      SomForkJoinTask task = createTask(arguments,
           onExec.executeShouldHalt(), block, sourceSection, traceProcCreation, vm);
-      forkJoinPool.execute(task);
+      fork(task);
       return task;
+    }
+
+    @TruffleBoundary
+    private void fork(final SomForkJoinTask task) {
+      forkJoinPool.execute(task);
     }
 
     @Specialization(guards = "clazz == ThreadClass")
@@ -176,7 +193,7 @@ public abstract class ActivitySpawn {
     public final Object spawnProcess(final VirtualFrame frame, final SImmutableObject procMod,
         final SClass procCls, @Cached("createIsValue()") final IsValue isVal) {
       if (!isVal.executeBoolean(frame, procCls)) {
-        notAValue.signal(procCls);
+        notAValue.signal(frame, procCls);
       }
 
       spawnProcess(procCls, traceProcCreation);
@@ -268,10 +285,14 @@ public abstract class ActivitySpawn {
         final SClass procCls, final SArray arg, final Object[] argArr,
         @Cached("createIsValue()") final IsValue isVal) {
       if (!isVal.executeBoolean(frame, procCls)) {
-        notAValue.signal(procCls);
+        notAValue.signal(frame, procCls);
       }
-
-      spawnProcess(procCls, argArr, traceProcCreation);
+      Object[] arguments = argArr;
+      if (VmSettings.ACTOR_ASYNC_STACK_TRACE_STRUCTURE) {
+        arguments = Arrays.copyOf(argArr, argArr.length + 1);
+        arguments[argArr.length] = maybeEntry;
+      }
+      spawnProcess(procCls, arguments, traceProcCreation);
       return Nil.nilObject;
     }
 

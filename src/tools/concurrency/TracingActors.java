@@ -1,6 +1,7 @@
 package tools.concurrency;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
@@ -19,6 +20,7 @@ import som.interpreter.actors.EventualMessage.PromiseMessage;
 import som.interpreter.actors.SPromise.STracingPromise;
 import som.vm.VmSettings;
 import tools.debugger.WebDebugger;
+import tools.debugger.frontend.Suspension;
 import tools.replay.PassiveEntityWithEvents;
 import tools.replay.ReplayRecord;
 import tools.replay.TraceParser;
@@ -40,6 +42,13 @@ public class TracingActors {
      */
     protected boolean stepToNextTurn;
 
+    /**
+     * Saves all ids and the instances of the actors created in the system.
+     */
+    private static Map<Long, Actor> allActors = new HashMap<>();
+
+    private static WebDebugger debugger;
+
     public TracingActor(final VM vm) {
       super(vm);
       this.activityId = TracingActivityThread.newEntityId();
@@ -48,11 +57,24 @@ public class TracingActors {
       if (VmSettings.SNAPSHOTS_ENABLED) {
         snapshotRecord = new SnapshotRecord();
       }
+      if (VmSettings.TRUFFLE_DEBUGGER_ENABLED) {
+        debugger = vm.getWebDebugger();
+      }
     }
 
     protected TracingActor(final VM vm, final long id) {
       super(vm);
       this.activityId = id;
+    }
+
+    public static void saveMessageReceived(final Actor actor, final EventualMessage message) {
+      TracingActivityThread tracingActivityThread =
+          TracingBackend.getTracingActivityThread(actor.getId());
+      if (tracingActivityThread != null) {
+        // so.println("saveMessageReceived "+message.getMessageId() + "
+        // "+actor.getId());
+        KomposTrace.actorMessageReception(message.getMessageId(), tracingActivityThread);
+      }
     }
 
     public final int getActorId() {
@@ -141,6 +163,30 @@ public class TracingActors {
      */
     public DeserializationBuffer getDeserializationBuffer() {
       return null;
+    }
+
+    public static void saveActor(final Actor actor) {
+      allActors.put(actor.getId(), actor);
+    }
+
+    public static Actor getActorById(final long actorId) {
+      return allActors.get(actorId);
+    }
+
+    /**
+     * Stop actor execution if they are paused to avoid open threads before system shutdown.
+     */
+    public static void stopActorsIfSuspended() {
+      for (long actorId : allActors.keySet()) {
+        if (actorId > 0) { // do not stop Platform actor
+          Suspension suspension = debugger.getSuspension(actorId);
+          if (suspension != null && suspension.getEvent() != null
+              && !suspension.getEvent().isDisposed()) {
+            suspension.getEvent().prepareKill();
+            suspension.resume();
+          }
+        }
+      }
     }
   }
 
@@ -351,8 +397,7 @@ public class TracingActors {
         }
 
         assert toProcess.size()
-            + orderedMessages.size() == numReceivedMsgs
-            : "We shouldn't lose any messages here.";
+            + orderedMessages.size() == numReceivedMsgs : "We shouldn't lose any messages here.";
         return toProcess;
       }
 

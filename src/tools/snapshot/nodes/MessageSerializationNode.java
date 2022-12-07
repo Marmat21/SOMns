@@ -5,6 +5,7 @@ import com.oracle.truffle.api.RootCallTarget;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
 
+import som.interpreter.SArguments;
 import som.interpreter.SomLanguage;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor;
@@ -410,7 +411,7 @@ public abstract class MessageSerializationNode extends AbstractSerializationNode
       pmf.setMessage(psm);
     }
     psm.resolve(value, EventualMessage.getActorCurrentMessageIsExecutionOn(),
-        finalSender);
+        finalSender, SArguments.instantiateTopShadowStackEntry(this));
 
     return psm;
   }

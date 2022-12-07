@@ -7,18 +7,16 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
-import com.oracle.truffle.api.RootCallTarget;
-import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.TruffleOptions;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.NodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.FrameInstance;
-import com.oracle.truffle.api.frame.FrameInstanceVisitor;
+import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.Tag;
 import com.oracle.truffle.api.interop.ArityException;
 import com.oracle.truffle.api.interop.InteropLibrary;
@@ -26,7 +24,6 @@ import com.oracle.truffle.api.interop.TruffleObject;
 import com.oracle.truffle.api.interop.UnsupportedMessageException;
 import com.oracle.truffle.api.interop.UnsupportedTypeException;
 import com.oracle.truffle.api.library.CachedLibrary;
-import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
@@ -38,7 +35,6 @@ import som.VM;
 import som.compiler.MixinDefinition;
 import som.interop.ValueConversion.ToSomConversion;
 import som.interop.ValueConversionFactory.ToSomConversionNodeGen;
-import som.interpreter.Invokable;
 import som.interpreter.Types;
 import som.interpreter.actors.Actor.ActorProcessingThread;
 import som.interpreter.actors.EventualMessage;
@@ -63,6 +59,10 @@ import som.vmobjects.SObjectWithClass;
 import som.vmobjects.SSymbol;
 import tools.concurrency.TracingActors.TracingActor;
 import tools.concurrency.TracingBackend;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.ShadowStackEntryLoad;
+import tools.debugger.asyncstacktraces.StackIterator;
+import tools.debugger.frontend.ApplicationThreadStack.StackFrame;
 import tools.dym.Tags.BasicPrimitiveOperation;
 import tools.replay.actors.UniformExecutionTrace;
 import tools.replay.nodes.TraceContextNode;
@@ -95,7 +95,17 @@ public final class SystemPrims {
     @Specialization
     @TruffleBoundary
     public final Object doSObject(final Object module) {
-      long[] stats = TracingBackend.getStatistics();
+      long[] tracingStats = TracingBackend.getStatistics();
+      long[] stats = Arrays.copyOf(tracingStats, tracingStats.length + 5);
+      stats[tracingStats.length] = ShadowStackEntry.numberOfAllocations;
+      ShadowStackEntry.numberOfAllocations = 0;
+      stats[tracingStats.length + 1] = 0;
+      stats[tracingStats.length + 2] = ShadowStackEntryLoad.cacheHit;
+      ShadowStackEntryLoad.cacheHit = 0;
+      stats[tracingStats.length + 3] = ShadowStackEntryLoad.megaMiss;
+      ShadowStackEntryLoad.megaMiss = 0;
+      stats[tracingStats.length + 4] = ShadowStackEntryLoad.megaCacheHit;
+      ShadowStackEntryLoad.megaCacheHit = 0;
       return new SImmutableArray(stats, Classes.valueArrayClass);
     }
   }
@@ -131,25 +141,47 @@ public final class SystemPrims {
     }
   }
 
-  public static Object loadModule(final VM vm, final String path,
+  @TruffleBoundary
+  private static String concat(final String a, final Exception e) {
+    return a.concat(e.getMessage());
+  }
+
+  @TruffleBoundary
+  private static String concat(final String a, final String b) {
+    return a.concat(b);
+  }
+
+  @TruffleBoundary
+  private static String getMessage(final IOException e) {
+    return e.getMessage();
+  }
+
+  public static Object loadModule(final VirtualFrame frame, final VM vm, final String path,
       final ExceptionSignalingNode ioException) {
     // TODO: a single node for the different exceptions?
     try {
-      if (path.endsWith(EXTENSION_EXT)) {
-        return vm.loadExtensionModule(path);
-      } else {
-        MixinDefinition module = vm.loadModule(path);
-        return module.instantiateModuleClass();
-      }
+      return loadModule(vm, path);
     } catch (FileNotFoundException e) {
-      ioException.signal(path, "Could not find module file. " + e.getMessage());
+      ioException.signal(frame, path,
+          concat("Could not find module file. ", e));
     } catch (NotAFileException e) {
-      ioException.signal(path, "Path does not seem to be a file. " + e.getMessage());
+      ioException.signal(frame, path,
+          concat("Path does not seem to be a file. ", e));
     } catch (IOException e) {
-      ioException.signal(e.getMessage());
+      ioException.signal(frame, getMessage(e));
     }
     assert false : "This should never be reached, because exceptions do not return";
     return Nil.nilObject;
+  }
+
+  @TruffleBoundary
+  private static Object loadModule(final VM vm, final String path) throws IOException {
+    if (path.endsWith(EXTENSION_EXT)) {
+      return vm.loadExtensionModule(path);
+    } else {
+      MixinDefinition module = vm.loadModule(path);
+      return module.instantiateModuleClass();
+    }
   }
 
   @GenerateNodeFactory
@@ -166,9 +198,8 @@ public final class SystemPrims {
     }
 
     @Specialization
-    @TruffleBoundary
-    public final Object doSObject(final String moduleName) {
-      return loadModule(vm, moduleName, ioException);
+    public final Object doSObject(final VirtualFrame frame, final String moduleName) {
+      return loadModule(frame, vm, moduleName, ioException);
     }
   }
 
@@ -186,13 +217,20 @@ public final class SystemPrims {
     }
 
     @Specialization
+    public final Object load(final VirtualFrame frame, final String filename,
+        final SObjectWithClass moduleObj) {
+      String pathWithBasePath = getPathWithBase(filename, moduleObj);
+      return loadModule(frame, vm, pathWithBasePath, ioException);
+    }
+
     @TruffleBoundary
-    public final Object load(final String filename, final SObjectWithClass moduleObj) {
+    private String getPathWithBase(final String filename, final SObjectWithClass moduleObj) {
       String path = moduleObj.getSOMClass().getMixinDefinition().getSourceSection().getSource()
                              .getPath();
       File file = new File(URI.create(path).getPath());
 
-      return loadModule(vm, file.getParent() + File.separator + filename, ioException);
+      String pathWithBasePath = file.getParent() + File.separator + filename;
+      return pathWithBasePath;
     }
   }
 
@@ -291,57 +329,57 @@ public final class SystemPrims {
     public static void printStackTrace(final int skipDnuFrames, final SourceSection topNode) {
       ArrayList<String> method = new ArrayList<String>();
       ArrayList<String> location = new ArrayList<String>();
-      int[] maxLengthMethod = {0};
-      boolean[] first = {true};
-      Output.println("Stack Trace");
+      int maxLengthMethod = 0;
 
-      Truffle.getRuntime().iterateFrames(new FrameInstanceVisitor<Object>() {
-        @Override
-        public Object visitFrame(final FrameInstance frameInstance) {
-          RootCallTarget ct = (RootCallTarget) frameInstance.getCallTarget();
+      //StackIterator stack = StackIterator.createHaltIterator(topNode);
+      StackIterator stack = new StackIterator.HaltIterator(topNode);
+      boolean asyncTrace = false;
 
-          // TODO: do we need to handle other kinds of root nodes?
-          if (!(ct.getRootNode() instanceof Invokable)) {
-            return null;
-          }
+      if (stack instanceof StackIterator.ShadowStackIterator.HaltShadowStackIterator) {
+        Output.println("Async Stack Trace");
+        asyncTrace = true;
+      } else {
+        Output.println("Stack Trace");
+      }
 
-          Invokable m = (Invokable) ct.getRootNode();
-
-          String id = m.getName();
-          method.add(id);
-          maxLengthMethod[0] = Math.max(maxLengthMethod[0], id.length());
-          Node callNode = frameInstance.getCallNode();
-          if (callNode != null || first[0]) {
-            SourceSection nodeSS;
-            if (first[0]) {
-              first[0] = false;
-              nodeSS = topNode;
-            } else {
-              nodeSS = callNode.getEncapsulatingSourceSection();
-            }
-            if (nodeSS != null) {
-              location.add(nodeSS.getSource().getName()
-                  + SourceCoordinate.getLocationQualifier(nodeSS));
-            } else {
-              location.add("");
-            }
-          } else {
-            location.add("");
-          }
-
-          return null;
+      while (stack.hasNext()) {
+        StackFrame frame = stack.next();
+        if (frame != null) {
+          method.add(frame.name);
+          maxLengthMethod = Math.max(maxLengthMethod, frame.name.length());
+          // note: `callNode.getEncapsulatingSourceSection();` is better than frame.section
+          // because with this one we can get the source section while the other option returns
+          // null
+          addSourceSection(frame.section, location);
         }
-      });
+      }
 
+      // for async traces hide only 1 frame: Thing>>#error:, because we want to show the last
+      // frame although is not async
+      Output.print(stringStackTraceFrom(method, location, maxLengthMethod,
+          asyncTrace == false ? skipDnuFrames : 1));
+    }
+
+    private static String stringStackTraceFrom(final ArrayList<String> method,
+        final ArrayList<String> location, final int maxLengthMethod, final int skipDnuFrames) {
       StringBuilder sb = new StringBuilder();
       for (int i = method.size() - 1; i >= skipDnuFrames; i--) {
-        sb.append(String.format("\t%1$-" + (maxLengthMethod[0] + 4) + "s",
+        sb.append(String.format("\t%1$-" + (maxLengthMethod + 4) + "s",
             method.get(i)));
         sb.append(location.get(i));
         sb.append('\n');
       }
+      return sb.toString();
+    }
 
-      Output.print(sb.toString());
+    private static void addSourceSection(final SourceSection section,
+        final ArrayList<String> location) {
+      if (section != null) {
+        location.add(section.getSource().getName()
+            + SourceCoordinate.getLocationQualifier(section));
+      } else {
+        location.add("");
+      }
     }
   }
 

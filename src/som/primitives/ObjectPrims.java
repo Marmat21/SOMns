@@ -1,7 +1,10 @@
 package som.primitives;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.debug.DebuggerTags.AlwaysHalt;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
@@ -11,20 +14,24 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.GenerateWrapper;
 import com.oracle.truffle.api.instrumentation.ProbeNode;
 import com.oracle.truffle.api.instrumentation.Tag;
+import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
 import bd.tools.nodes.Operation;
 import som.Output;
 import som.VM;
+import som.interpreter.SArguments;
 import som.interpreter.Types;
 import som.interpreter.actors.SFarReference;
 import som.interpreter.actors.SPromise;
 import som.interpreter.actors.SPromise.SResolver;
+import som.interpreter.nodes.dispatch.CachedDispatchNode;
 import som.interpreter.nodes.nary.UnaryBasicOperation;
 import som.interpreter.nodes.nary.UnaryExpressionNode;
 import som.interpreter.processes.SChannel.SChannelInput;
 import som.interpreter.processes.SChannel.SChannelOutput;
 import som.primitives.ObjectPrimsFactory.IsValueFactory;
+import som.vm.constants.Classes;
 import som.vm.constants.Nil;
 import som.vmobjects.SAbstractObject;
 import som.vmobjects.SArray.SImmutableArray;
@@ -35,10 +42,90 @@ import som.vmobjects.SObject.SImmutableObject;
 import som.vmobjects.SObject.SMutableObject;
 import som.vmobjects.SObjectWithClass.SObjectWithoutFields;
 import som.vmobjects.SSymbol;
+import tools.debugger.asyncstacktraces.ShadowStackEntry;
+import tools.debugger.asyncstacktraces.StackIterator;
+import tools.debugger.frontend.ApplicationThreadStack;
 import tools.dym.Tags.OpComparison;
 
 
 public final class ObjectPrims {
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "asyncTrace:")
+  public abstract static class AsyncTracePrim extends UnaryExpressionNode {
+    @Specialization
+    public final Object doSAbstractObject(VirtualFrame frame, final Object receiver) {
+      CompilerDirectives.transferToInterpreter();
+
+      Output.errorPrintln("ASYNC STACK TRACE");
+      StackIterator.ShadowStackIterator iterator =
+          new StackIterator.ShadowStackIterator.HaltShadowStackIterator(this.sourceSection);
+      List<String> stack = new ArrayList<>();
+      while (iterator.hasNext()) {
+        ApplicationThreadStack.StackFrame sf = iterator.next();
+        if (sf != null) {
+          SourceSection section = sf.section;
+          String isFromMCOpt = (sf.fromMethodCache) ? ", MC" : "";
+          if (sf instanceof ApplicationThreadStack.ParallelStack){
+             for (List<ApplicationThreadStack.StackFrame> stackList : ((ApplicationThreadStack.ParallelStack) sf).parallelStacks){
+              stack.add("PromiseGroup Parallel Stack");
+               for (ApplicationThreadStack.StackFrame f : stackList){
+                stack.add(" => ,"  +  f.name + ", " + f.section.getSource().getName() + ", " + f.section.getStartLine());
+              }
+             }
+          } else {
+            stack.add(
+                    sf.name + ", " + section.getSource().getName() + ", " + section.getStartLine() + isFromMCOpt);
+          }
+        }
+      }
+      return new SImmutableArray(stack.toArray(), Classes.arrayClass);
+    }
+
+    @Override
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
+      if (tag == AlwaysHalt.class) {
+        return true;
+      }
+      return super.hasTagIgnoringEagerness(tag);
+    }
+  }
+
+  @GenerateNodeFactory
+  @Primitive(primitive = "resetAsyncTrace:")
+  public abstract static class ResetAsyncTracePrim extends UnaryExpressionNode {
+    @Specialization
+    public final Object doSAbstractObject(VirtualFrame frame, final Object receiver) {
+      Output.errorPrintln("RESETTING ASYNC STACK TRACE");
+      ShadowStackEntry currentEntry = SArguments.getShadowStackEntry(frame);
+      boolean keepLooping = true;
+      String methodName;
+      while (keepLooping && currentEntry != null) {
+        if (currentEntry instanceof ShadowStackEntry.EntryForPromiseResolution) {
+          methodName =
+              ((ShadowStackEntry.EntryForPromiseResolution) currentEntry).resolutionLocation.toString();
+        } else {
+          methodName =
+              ((CachedDispatchNode) currentEntry.getExpression()).getCachedMethod().getName();
+        }
+        if (methodName.equals("ON_WHEN_RESOLVED_BLOCK")) {
+          keepLooping = false;
+        } else {
+          currentEntry = currentEntry.getPreviousShadowStackEntry();
+        }
+      }
+      currentEntry.setPreviousShadowStackEntry(ShadowStackEntry.createTop(this));
+      return "RESET";
+    }
+
+    @Override
+    protected boolean hasTagIgnoringEagerness(final Class<? extends Tag> tag) {
+      if (tag == AlwaysHalt.class) {
+        return true;
+      }
+      return super.hasTagIgnoringEagerness(tag);
+    }
+  }
 
   @GenerateNodeFactory
   @Primitive(primitive = "objClassName:")

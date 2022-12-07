@@ -17,6 +17,7 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.Specialization;
+import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.source.SourceSection;
 
 import bd.primitives.Primitive;
@@ -38,6 +39,11 @@ import som.vmobjects.SObject.SImmutableObject;
 
 public final class PathPrims {
   @CompilationFinal private static SImmutableObject fileObject;
+
+  @TruffleBoundary
+  private static String getMessage(final Exception e) {
+    return e.getMessage();
+  }
 
   public static final class FileModule implements Supplier<SObject> {
     @Override
@@ -87,11 +93,12 @@ public final class PathPrims {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
 
     @Specialization
-    public final Object copyAs(final String source, final String dest, final SBlock fail) {
+    public final Object copyAs(final VirtualFrame frame, final String source,
+        final String dest, final SBlock fail) {
       try {
         copy(source, dest);
       } catch (IOException e) {
-        dispatchHandler.executeDispatch(new Object[] {fail, PathPrims.toString(e)});
+        dispatchHandler.executeDispatch(frame, new Object[] {fail, PathPrims.toString(e)});
       }
       return Nil.nilObject;
     }
@@ -108,11 +115,12 @@ public final class PathPrims {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
 
     @Specialization
-    public final Object createDirectory(final String dir, final SBlock fail) {
+    public final Object createDirectory(final VirtualFrame frame, final String dir,
+        final SBlock fail) {
       try {
         createDirectory(dir);
       } catch (IOException e) {
-        dispatchHandler.executeDispatch(new Object[] {fail, PathPrims.toString(e)});
+        dispatchHandler.executeDispatch(frame, new Object[] {fail, PathPrims.toString(e)});
       }
       return Nil.nilObject;
     }
@@ -129,11 +137,12 @@ public final class PathPrims {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
 
     @Specialization
-    public final Object delteDirectory(final String dir, final SBlock fail) {
+    public final Object delteDirectory(final VirtualFrame frame, final String dir,
+        final SBlock fail) {
       try {
         delete(dir);
       } catch (IOException e) {
-        dispatchHandler.executeDispatch(new Object[] {fail, PathPrims.toString(e)});
+        dispatchHandler.executeDispatch(frame, new Object[] {fail, PathPrims.toString(e)});
       }
       return Nil.nilObject;
     }
@@ -192,15 +201,14 @@ public final class PathPrims {
     }
 
     @Specialization
-    @TruffleBoundary
-    public final Object lastModified(final String dir) {
+    public final Object lastModified(final VirtualFrame frame, final String dir) {
       try {
         return lastModifiedTime(dir);
       } catch (FileNotFoundException e) {
-        fileNotFound.signal(dir, e.getMessage());
+        fileNotFound.signal(frame, dir, getMessage(e));
         return Nil.nilObject;
       } catch (IOException e) {
-        ioException.signal(e.getMessage());
+        ioException.signal(frame, getMessage(e));
         return Nil.nilObject;
       }
     }
@@ -217,11 +225,12 @@ public final class PathPrims {
     @Child protected BlockDispatchNode dispatchHandler = BlockDispatchNodeGen.create();
 
     @Specialization
-    public final Object moveAs(final String source, final String dest, final SBlock fail) {
+    public final Object moveAs(final VirtualFrame frame, final String source,
+        final String dest, final SBlock fail) {
       try {
         move(source, dest);
       } catch (IOException e) {
-        dispatchHandler.executeDispatch(new Object[] {fail, PathPrims.toString(e)});
+        dispatchHandler.executeDispatch(frame, new Object[] {fail, PathPrims.toString(e)});
       }
       return Nil.nilObject;
     }
@@ -250,14 +259,13 @@ public final class PathPrims {
     }
 
     @Specialization
-    @TruffleBoundary
-    public final long getSize(final String dir) {
+    public final long getSize(final VirtualFrame frame, final String dir) {
       try {
         return size(dir);
       } catch (NoSuchFileException e) {
-        fileNotFound.signal(dir, e.getMessage());
+        fileNotFound.signal(frame, dir, getMessage(e));
       } catch (IOException e) {
-        ioException.signal(e.getMessage());
+        ioException.signal(frame, getMessage(e));
       }
       return -1;
     }

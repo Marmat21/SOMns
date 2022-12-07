@@ -32,6 +32,7 @@ import som.compiler.MethodBuilder;
 import som.interpreter.LexicalScope.MethodScope;
 import som.interpreter.nodes.ExpressionNode;
 import som.interpreter.nodes.SOMNode;
+import som.interpreter.nodes.dispatch.BackCacheCallNode;
 import som.vmobjects.SInvokable;
 
 
@@ -40,6 +41,10 @@ public final class Method extends Invokable {
   private final MethodScope     methodScope;
   private final SourceSection[] definition;
   private final boolean         block;
+
+  // Currently only accessed when iterating the stack
+  // Thus, this doesn't need to be compilation final
+  private BackCacheCallNode uniqueCaller;
 
   public Method(final String name, final SourceSection sourceSection,
       final SourceSection[] definition,
@@ -72,9 +77,22 @@ public final class Method extends Invokable {
     }
 
     assert !getSourceSection().equals(
-        m.getSourceSection())
-        : "If that triggers, something with the source sections is wrong.";
+        m.getSourceSection()) : "If that triggers, something with the source sections is wrong.";
     return false;
+  }
+
+  public void setNewCaller(final BackCacheCallNode caller) {
+    if (uniqueCaller == null) {
+      uniqueCaller = caller;
+      caller.makeUniqueCaller();
+    } else {
+      uniqueCaller.makeMultipleCaller();
+      caller.makeMultipleCaller();
+    }
+  }
+
+  public BackCacheCallNode getUniqueCaller() {
+    return uniqueCaller;
   }
 
   public SourceSection[] getDefinition() {
@@ -90,7 +108,8 @@ public final class Method extends Invokable {
   public ExpressionNode inline(final MethodBuilder builder, final SInvokable outer) {
     builder.mergeIntoScope(methodScope, outer);
     return ScopeAdaptationVisitor.adapt(
-        uninitializedBody, builder.getScope(), 0, true, SomLanguage.getLanguage(this));
+        uninitializedBody, builder.getScope(), this.methodScope, 0, true,
+        SomLanguage.getLanguage(this));
   }
 
   @Override
@@ -106,7 +125,8 @@ public final class Method extends Invokable {
       final boolean someOuterScopeIsMerged) {
     SomLanguage lang = SomLanguage.getLanguage(this);
     ExpressionNode adaptedBody = ScopeAdaptationVisitor.adapt(
-        uninitializedBody, adaptedScope, appliesTo, someOuterScopeIsMerged, lang);
+        uninitializedBody, adaptedScope, methodScope,
+        appliesTo, someOuterScopeIsMerged, lang);
 
     ExpressionNode uninit;
     if (cloneAdaptedAsUninitialized) {
@@ -137,7 +157,8 @@ public final class Method extends Invokable {
 
     MethodScope splitScope = methodScope.split();
     ExpressionNode body =
-        ScopeAdaptationVisitor.adapt(uninitializedBody, splitScope, 0, true, lang);
+        ScopeAdaptationVisitor.adapt(uninitializedBody, splitScope, methodScope, 0, true,
+            lang);
     ExpressionNode uninit = NodeUtil.cloneNode(body);
 
     Method atomic = new Method(name, getSourceSection(), definition, body,

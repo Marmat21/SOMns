@@ -7,6 +7,7 @@ import tools.debugger.entities.BreakpointType;
 import tools.debugger.entities.DynamicScopeType;
 import tools.debugger.entities.EntityType;
 import tools.debugger.entities.Implementation;
+import tools.debugger.entities.MessageReception;
 import tools.debugger.entities.PassiveEntityType;
 import tools.debugger.entities.ReceiveOp;
 import tools.debugger.entities.SendOp;
@@ -214,6 +215,7 @@ public final class InitializationResponse extends OutgoingMessage {
     private final ParseData            passiveEntityParseData;
     private final ParseData            dynamicScopeParseData;
     private final ParseData            sendReceiveParseData;
+    private final ParseData            actorMessageReceiveData;
     private final ImplementationData[] implementationData;
 
     private final BreakpointData[] breakpointTypes;
@@ -227,7 +229,7 @@ public final class InitializationResponse extends OutgoingMessage {
         final ReceiveOp[] supportedReceiveOps,
         final BreakpointType[] supportedBreakpoints,
         final SteppingType[] supportedSteps,
-        final Implementation[] implData) {
+        final Implementation[] implData, final MessageReception[] msgReception) {
       activities = getDefinitions(supportedActivities);
       passiveEntities = getDefinitions(supportedPassiveEntities);
       dynamicScopes = getDefinitions(supportedDynamicScopes);
@@ -247,6 +249,7 @@ public final class InitializationResponse extends OutgoingMessage {
       sendReceiveParseData = new ParseData(
           supportedSendOps[0].getSize(),
           supportedReceiveOps[0].getSize());
+      actorMessageReceiveData = new ParseData(msgReception[0].getSize(), 0);
 
       implementationData = getDefinitions(implData);
 
@@ -271,10 +274,11 @@ public final class InitializationResponse extends OutgoingMessage {
       final SendOp[] supportedSendOps,
       final ReceiveOp[] supportedReceiveOps,
       final BreakpointType[] supportedBreakpoints,
-      final SteppingType[] supportedSteps, final Implementation[] implData) {
+      final SteppingType[] supportedSteps, final Implementation[] implData,
+      final MessageReception[] msgReception) {
     return new InitializationResponse(new ServerCapabilities(supportedEntities,
         supportedActivities, supportedPassiveEntities, supportedDynamicScopes,
         supportedSendOps, supportedReceiveOps, supportedBreakpoints,
-        supportedSteps, implData));
+        supportedSteps, implData, msgReception));
   }
 }

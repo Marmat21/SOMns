@@ -2,6 +2,7 @@
 	path = libs/truffle
 	url = https://github.com/smarr/Truffle.git
 	shallow = false
+	branch = debugger/step-end-turn
 [submodule "libs/mx"]
 	path = libs/mx
 	url = https://github.com/smarr/mx.git
