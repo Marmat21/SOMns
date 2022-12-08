@@ -110,10 +110,10 @@ public final class StackTraceResponse extends Response {
       this.async = async;
     }
 
-    StackFrame(final long globalId, final String name, final String sourceUri,
+    StackFrame(final long globalId, final long frameId, final String name, final String sourceUri,
                final int line, final int column, final int endLine,
                final int endColumn, final int length, final boolean async, Suspension suspension,ApplicationThreadStack.ParallelStack parallelStackFrame){
-      this(globalId,name,sourceUri,line,column,endLine,endColumn,length,async);
+      this(globalId, frameId, name,sourceUri,line,column,endLine,endColumn,length,async);
       int count = 0;
       this.parallelStacks = new LinkedList<>();
       for(List<ApplicationThreadStack.StackFrame> stackFrameList : parallelStackFrame.parallelStacks){
@@ -227,7 +227,7 @@ public final class StackTraceResponse extends Response {
 
     boolean async = frame.asyncOperation;
     if (frame instanceof ApplicationThreadStack.ParallelStack){
-      return new StackFrame(id, name, sourceUri, line, column, endLine, endColumn, length,
+      return new StackFrame(id, frameId, name, sourceUri, line, column, endLine, endColumn, length,
               async,suspension,(ApplicationThreadStack.ParallelStack) frame);
     }
     return new StackFrame(id, frameId, name, sourceUri, line, column, endLine, endColumn, length,

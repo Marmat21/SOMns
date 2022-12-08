@@ -58,6 +58,7 @@ import tools.debugger.entities.PassiveEntityType;
 import tools.debugger.entities.ReceiveOp;
 import tools.debugger.entities.SendOp;
 import tools.debugger.entities.SteppingType;
+import tools.debugger.frontend.ApplicationThreadStack;
 import tools.debugger.frontend.Suspension;
 import tools.debugger.message.InitializationResponse;
 import tools.debugger.message.Message;

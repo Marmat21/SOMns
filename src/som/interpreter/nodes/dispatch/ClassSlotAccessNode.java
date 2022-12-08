@@ -99,9 +99,6 @@ public final class ClassSlotAccessNode extends CachedSlotRead {
       if (cachedValue == Nil.nilObject) {
         return instantiateAndWriteUnsynced(frame, rcvr, maybeEntry);
       } else {
-        if (cachedValue == null) {
-          return instantiateAndWriteUnsynced(rcvr);
-        }
         assert cachedValue instanceof SClass;
         return (SClass) cachedValue;
       }

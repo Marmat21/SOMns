@@ -50,7 +50,7 @@ public class UpdateClass extends IncommingMessage {
     @Override
     public boolean execute() {
       MixinDefinition updatedModule = frontend.updateClass(filePath);
-      ArrayList<DebugStackFrame> frames =  suspension.getStackFrames();
+      Iterable<DebugStackFrame> frames =  suspension.getEvent().getStackFrames();
 //      int a = 1 + 1;
 //      System.out.println(a);
       DebugStackFrame restartFrame = null;
