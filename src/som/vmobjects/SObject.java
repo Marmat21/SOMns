@@ -231,7 +231,7 @@ public abstract class SObject extends SObjectWithClass {
         // need to ignore mutators and class slots
         // ignore primitives, have been checked separately before
         if (e.getKey().getClass() == SlotDefinition.class && e.getValue().isObjectLocation() &&
-            e.getValue().read(this) != oLocs.get(e.getKey()).read(this)) {
+            e.getValue().read(this) != oLocs.get(e.getKey()).read(o)) {
           return false;
         }
       }
